@@ -2217,6 +2217,121 @@ class CamCtl {
   orbitEnd() { const O = this.orb; if (O.drag) { O.drag = false; O.hold = 2; } }
 }
 
+// ------------------------------------------------------------
+// égi események: Starlink-vonat és Falcon 9 indítás (az éggömbhöz kötve)
+class SkyEvents {
+  constructor(sky) {
+    this.sky = sky; this.R = 1550;
+    this.tStar = 20 + Math.random() * 30; this.tRocket = 70 + Math.random() * 60;
+    this.star = null; this.rocket = null;
+    const mkPts = (n, color) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('aA', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('aS', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
+      const m = new THREE.ShaderMaterial({
+        uniforms: { uC: { value: new THREE.Color(color) }, uPR: { value: 1 } },
+        vertexShader: `attribute float aA; attribute float aS; uniform float uPR; varying float vA;
+          void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_PointSize = aS * uPR; vA = aA; }`,
+        fragmentShader: `uniform vec3 uC; varying float vA; void main(){ float r = length(gl_PointCoord-0.5); if (r>0.5) discard;
+          gl_FragColor = vec4(uC, vA * smoothstep(0.5, 0.05, r)); }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      });
+      const p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = -8; p.visible = false;
+      sky.add(p);
+      return p;
+    };
+    this.trainPts = mkPts(32, 0xf2f6ff);
+    this.trailPts = mkPts(260, 0xffe6c4);
+    this.trailIdx = 0; this.trailAge = new Float32Array(260).fill(99);
+    const spr = (tex, color, s) => {
+      const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false, opacity: 0 }));
+      m.scale.set(s, s, 1); m.renderOrder = -7; m.visible = false; sky.add(m); return m;
+    };
+    this.flame = spr(radialTex('rgba(255,236,200,1)', 'rgba(255,140,60,0)'), 0xffffff, 26);
+    this.jelly = spr(radialTex('rgba(170,215,255,0.8)', 'rgba(120,170,255,0)'), 0xffffff, 60);
+  }
+  dir(az, el, out) {
+    const c = Math.cos(el);
+    out[0] = Math.cos(az) * c * this.R; out[1] = Math.sin(el) * this.R; out[2] = Math.sin(az) * c * this.R;
+    return out;
+  }
+  setPR(pr) { this.trainPts.material.uniforms.uPR.value = pr; this.trailPts.material.uniforms.uPR.value = pr; }
+  startStarlink() {
+    const az = Math.random() * Math.PI * 2;
+    this.star = { t: 0, dur: 30 + Math.random() * 10, az0: az, az1: az + 1.6 + Math.random() * 0.9, el0: 0.12, el1: 0.12, peak: 0.6 + Math.random() * 0.6, n: 18 + Math.floor(Math.random() * 12) };
+    this.trainPts.visible = true;
+  }
+  startRocket() {
+    this.rocket = { t: 0, dur: 55, az: Math.random() * Math.PI * 2, drift: (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.2), emit: 0 };
+    this.trailAge.fill(99);
+    this.trailPts.visible = true; this.flame.visible = true;
+  }
+  update(dt) {
+    this.tStar -= dt; this.tRocket -= dt;
+    if (this.tStar <= 0 && !this.star) { this.startStarlink(); this.tStar = 80 + Math.random() * 90; }
+    if (this.tRocket <= 0 && !this.rocket) { this.startRocket(); this.tRocket = 200 + Math.random() * 160; }
+    const v = [0, 0, 0];
+    // Starlink: fényes pontok egymás után, egyenes íven
+    if (this.star) {
+      const S = this.star; S.t += dt;
+      const pos = this.trainPts.geometry.attributes.position, A = this.trainPts.geometry.attributes.aA, Sz = this.trainPts.geometry.attributes.aS;
+      for (let i = 0; i < 32; i++) {
+        const u = S.t / S.dur - i * 0.011;
+        if (i >= S.n || u < 0 || u > 1) { A.array[i] = 0; continue; }
+        const az = S.az0 + (S.az1 - S.az0) * u, el = S.el0 + Math.sin(u * Math.PI) * S.peak;
+        this.dir(az, el, v); pos.array[i * 3] = v[0]; pos.array[i * 3 + 1] = v[1]; pos.array[i * 3 + 2] = v[2];
+        const fade = Math.min(1, u * 8, (1 - u) * 8);
+        A.array[i] = fade * (0.8 + 0.2 * Math.sin(S.t * 7 + i * 1.7)); Sz.array[i] = 4.4;
+      }
+      pos.needsUpdate = true; A.needsUpdate = true; Sz.needsUpdate = true;
+      if (S.t / S.dur - S.n * 0.011 > 1) { this.star = null; this.trainPts.visible = false; }
+    }
+    // Falcon 9: lángpont, füstcsík, magasban "medúza" felhő
+    const TA = this.trailPts.geometry.attributes.aA, TS = this.trailPts.geometry.attributes.aS, TP = this.trailPts.geometry.attributes.position;
+    let anyTrail = false;
+    if (this.rocket) {
+      const K = this.rocket; K.t += dt;
+      const s = Math.min(1, K.t / K.dur);
+      const el = 0.01 + 0.62 * (1 - Math.pow(1 - s, 1.8)), az = K.az + K.drift * s * s;
+      this.dir(az, el, v);
+      const meco = s > 0.55;
+      this.flame.position.set(v[0], v[1], v[2]);
+      const fl = s < 0.03 ? s / 0.03 : (s > 0.93 ? (1 - s) / 0.07 : 1);
+      this.flame.material.opacity = fl * (meco ? 0.65 : 1) * (0.85 + Math.random() * 0.15);
+      const fs = (meco ? 13 : 26) * (0.9 + Math.random() * 0.2);
+      this.flame.scale.set(fs, fs, 1);
+      this.flame.material.color.setHex(meco ? 0xbfe0ff : 0xffffff);
+      K.emit -= dt;
+      if (K.emit <= 0 && s < 0.95) {
+        K.emit = 0.18;
+        const i = this.trailIdx; this.trailIdx = (i + 1) % 260;
+        TP.array[i * 3] = v[0]; TP.array[i * 3 + 1] = v[1]; TP.array[i * 3 + 2] = v[2];
+        this.trailAge[i] = 0;
+      }
+      // medúza: a magasban a napfényben szétterülő kipufogócsóva
+      if (s > 0.4) {
+        this.jelly.visible = true;
+        const j = Math.min(1, (s - 0.4) / 0.35);
+        this.jelly.position.set(v[0], v[1], v[2]);
+        this.jelly.scale.set(60 + j * 260, 50 + j * 200, 1);
+        this.jelly.material.opacity = j * 0.55 * (s > 0.85 ? (1 - s) / 0.15 + 0.3 : 1);
+      }
+      if (K.t > K.dur + 2) { this.rocket = null; this.flame.visible = false; }
+    }
+    for (let i = 0; i < 260; i++) {
+      const a = this.trailAge[i];
+      if (a > 40) { TA.array[i] = 0; continue; }
+      this.trailAge[i] = a + dt; anyTrail = true;
+      TA.array[i] = Math.max(0, 0.7 * (1 - a / 40)) * (a < 0.5 ? a * 2 : 1);
+      TS.array[i] = 4 + a * 0.7;
+    }
+    if (anyTrail) { TA.needsUpdate = true; TS.needsUpdate = true; TP.needsUpdate = true; }
+    else if (!this.rocket) this.trailPts.visible = false;
+    if (!this.rocket && this.jelly.visible) { this.jelly.material.opacity -= dt * 0.05; if (this.jelly.material.opacity <= 0) this.jelly.visible = false; }
+  }
+}
+
 'use strict';
 // ============================================================
 //  TEREP 30 – irányítás, hang, menü, játékciklus
@@ -2474,6 +2589,8 @@ const Game = {
     this.sky.sun.position.copy(this.sunDir).multiplyScalar(1700);
     this.sky.sun.lookAt(0, 0, 0);
     this.particles = new Particles(sc);
+    this.skyEvents = new SkyEvents(this.sky.sky);
+    this.skyEvents.setPR(r.getPixelRatio());
     this.cams = [new THREE.PerspectiveCamera(62, 1, 0.1, 2500), new THREE.PerspectiveCamera(62, 1, 0.1, 2500)];
     this.menuCam = new THREE.PerspectiveCamera(50, 1, 0.1, 2500);
     Input.init();
@@ -2732,6 +2849,7 @@ const Game = {
         UI.hud(i, c);
       });
     }
+    this.skyEvents.update(dt);
     this.worldView.update(dt, this.cars, this.particles);
     this.render(dt);
     Input.endFrame();
