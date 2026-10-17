@@ -90,7 +90,7 @@ body.touch.playing #touch{display:block!important}
  background:rgba(10,14,22,.5);border:2px solid rgba(255,255,255,.35);border-radius:14px;width:min(17vh,84px);height:min(17vh,84px);text-shadow:1px 1px 0 #000}
 .tb.on,.ts.on{background:rgba(85,255,255,.45);border-color:var(--cy);color:#000;text-shadow:none}
 .tb.gas{grid-area:gas;width:min(36vh,178px);height:min(22vh,110px);border-color:rgba(255,255,85,.7);font-size:15px}
-.tb.brake{grid-area:brake;height:min(22vh,110px)}
+.tb.brake{grid-area:brake;height:min(22vh,110px);text-align:center;line-height:1.5;font-size:11px}
 .tb.boost{grid-area:boost;border-color:rgba(85,255,255,.6)}
 .tb.jump{grid-area:jump;border-color:rgba(255,85,255,.6)}
 .tb.hb{grid-area:hb;font-size:10px}
@@ -147,7 +147,7 @@ body.menu-on #topinfo{display:none}
   <div id="stick"><i></i></div>
   <div class="tbtns">
     <div class="tb big gas" data-k="gas">GÁZ</div>
-    <div class="tb brake" data-k="brake">FÉK</div>
+    <div class="tb brake" data-k="brake">FÉK<br>TOLATÁS</div>
     <div class="tb boost" data-k="boost">BOOST</div>
     <div class="tb jump" data-k="jump">UGRÁS</div>
     <div class="tb hb" data-k="hb">KÉZIFÉK</div>
@@ -1223,6 +1223,92 @@ class WorldView {
     this.buildRocks();
     this.buildStructures();
     this.buildNight();
+    this.buildFish();
+  }
+  // halak a tavakban: halványan derengő pontyok, néha kiugranak
+  buildFish() {
+    const W = this.world, rnd = mulberry32(99);
+    const spots = [];
+    for (let k = 0; k < 6000 && spots.length < 70; k++) {
+      const x = (rnd() * 2 - 1) * W.half * 0.9, z = (rnd() * 2 - 1) * W.half * 0.9;
+      const bottom = W.heightAt(x, z);
+      if (bottom > W.water - 1.6) continue;
+      spots.push({ x, z, bottom });
+    }
+    this.fish = [];
+    if (!spots.length) return;
+    const gb = new GB();
+    const body = 0xff8a3d, belly = 0xffd2a0, fin = 0xff5f2a;
+    const N = [0.42, 0, 0], T = [-0.3, 0, 0], U = [0, 0.11, 0], D = [0, -0.1, 0], L = [0.02, 0, -0.08], Rr = [0.02, 0, 0.08];
+    gb.tri(N, U, Rr, body, [0.3, 1, 0.5]); gb.tri(N, Rr, D, belly, [0.3, -1, 0.5]); gb.tri(N, D, L, belly, [0.3, -1, -0.5]); gb.tri(N, L, U, body, [0.3, 1, -0.5]);
+    gb.tri(T, Rr, U, body, [-0.3, 1, 0.5]); gb.tri(T, D, Rr, belly, [-0.3, -1, 0.5]); gb.tri(T, L, D, belly, [-0.3, -1, -0.5]); gb.tri(T, U, L, body, [-0.3, 1, -0.5]);
+    gb.tri([-0.28, 0, 0], [-0.5, 0.13, 0], [-0.5, -0.13, 0], fin, [0, 0, 1]); gb.tri([-0.28, 0, 0], [-0.5, -0.13, 0], [-0.5, 0.13, 0], fin, [0, 0, -1]);
+    gb.tri([0.05, 0.1, 0], [-0.12, 0.2, 0], [-0.15, 0.08, 0], fin, [0, 0, 1]); gb.tri([0.05, 0.1, 0], [-0.15, 0.08, 0], [-0.12, 0.2, 0], fin, [0, 0, -1]);
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0xd0581c });
+    const mesh = new THREE.InstancedMesh(gb.geometry(), mat, spots.length);
+    mesh.frustumCulled = false;
+    const tint = new THREE.Color();
+    spots.forEach((p, i) => {
+      const depthMax = Math.min(2.6, W.water - p.bottom - 0.4);
+      const kind = rnd();
+      tint.setRGB(1, kind < 0.3 ? 1 : 0.85 + rnd() * 0.15, kind < 0.3 ? 1 : 0.8);
+      if (kind > 0.85) tint.setRGB(0.55, 0.75, 1.2);
+      mesh.setColorAt(i, tint);
+      this.fish.push({ hx: p.x, hz: p.z, a: rnd() * 6.28, w: (0.25 + rnd() * 0.35) * (rnd() < 0.5 ? -1 : 1), rad: 2 + rnd() * 6,
+        depth: 0.5 + rnd() * Math.max(0.2, depthMax - 0.5), s: 0.8 + rnd() * 1.1, x: p.x, y: W.water - 1, z: p.z,
+        jump: 0, vy: 0, vx: 0, vz: 0, flee: 0, phase: rnd() * 10 });
+    });
+    this.fishMesh = mesh;
+    this.group.add(mesh);
+    this._fm = new THREE.Matrix4(); this._fq = new THREE.Quaternion(); this._fe = new THREE.Euler(0, 0, 0, 'YZX'); this._fp = new THREE.Vector3(); this._fs = new THREE.Vector3();
+  }
+  updateFish(dt, cars, P) {
+    if (!this.fishMesh) return;
+    const W = this.world, wl = W.water, t = this.waterT;
+    this.fish.forEach((f, i) => {
+      let yaw, pitch = 0;
+      if (f.jump > 0) {
+        f.vy -= 9.81 * dt;
+        f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
+        yaw = Math.atan2(f.vz, f.vx); pitch = Math.atan2(f.vy, Math.hypot(f.vx, f.vz));
+        if (f.y < wl && f.vy < 0) {
+          f.jump = 0;
+          if (P) for (let k = 0; k < 10; k++) P.emit(f.x, wl + 0.05, f.z, (Math.random() - 0.5) * 2, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 2, 0xdff2ff, 0.25, 0.7, 0.6, 1, 6);
+          f.hx = f.x - Math.cos(f.a) * f.rad; f.hz = f.z - Math.sin(f.a) * f.rad;
+        }
+      } else {
+        // menekülés az autó elől
+        let fx = 0, fz = 0;
+        for (const c of cars) {
+          const dx = f.x - c.c[0], dz = f.z - c.c[2], d = Math.hypot(dx, dz);
+          if (d < 9 && c.c[1] < wl + 3) { fx += dx / (d + 0.1); fz += dz / (d + 0.1); f.flee = 1.5; }
+        }
+        f.flee = Math.max(0, f.flee - dt);
+        const sp = 1 + f.flee * 2.5;
+        f.a += f.w * sp * dt;
+        f.hx += fx * dt * 4; f.hz += fz * dt * 4;
+        const nx = f.hx + Math.cos(f.a) * f.rad + Math.sin(t * 0.7 + f.phase) * 0.6, nz = f.hz + Math.sin(f.a) * f.rad;
+        const bottom = W.heightAt(nx, nz);
+        if (bottom > wl - 0.5) { f.w = -f.w; f.a += f.w * sp * dt * 2; f.hx -= fx * dt * 8; f.hz -= fz * dt * 8; }
+        else { f.x = nx; f.z = nz; }
+        f.y = Math.max(W.heightAt(f.x, f.z) + 0.3, wl - f.depth + Math.sin(t * 1.3 + f.phase) * 0.15);
+        yaw = f.a + (f.w > 0 ? Math.PI / 2 : -Math.PI / 2);
+        // néha kiugrik
+        if (Math.random() < dt * 0.025 && f.depth < 2) {
+          f.jump = 1;
+          const h = 3 + Math.random() * 2;
+          f.vx = Math.cos(yaw) * h * 0.8; f.vz = Math.sin(yaw) * h * 0.8; f.vy = 4 + Math.random() * 2.5;
+          f.y = wl;
+          if (P) for (let k = 0; k < 8; k++) P.emit(f.x, wl + 0.05, f.z, (Math.random() - 0.5) * 1.5, 1 + Math.random() * 2, (Math.random() - 0.5) * 1.5, 0xdff2ff, 0.22, 0.6, 0.55, 1, 6);
+        }
+      }
+      const wig = Math.sin(t * (6 + f.flee * 6) + f.phase) * 0.18;
+      this._fe.set(0, -yaw + wig, pitch);
+      this._fq.setFromEuler(this._fe);
+      this._fm.compose(this._fp.set(f.x, f.y, f.z), this._fq, this._fs.set(f.s, f.s, f.s));
+      this.fishMesh.setMatrixAt(i, this._fm);
+    });
+    this.fishMesh.instanceMatrix.needsUpdate = true;
   }
   // éjszakai fények: neon csíkok, fénytornyok, lidércfények
   buildNight() {
@@ -1365,7 +1451,7 @@ class WorldView {
     g.rotateX(-Math.PI / 2);
     const p = g.attributes.position;
     this.waterBase = new Float32Array(p.array);
-    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: PAL.water, roughness: 0.1, metalness: 0.3, transparent: true, opacity: 0.85, flatShading: true }));
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: PAL.water, roughness: 0.1, metalness: 0.3, transparent: true, opacity: 0.74, flatShading: true }));
     m.position.y = W.water;
     m.receiveShadow = true;
     this.group.add(m);
@@ -1396,8 +1482,9 @@ class WorldView {
     }
     if (dirty) this.treeMesh.instanceMatrix.needsUpdate = true;
   }
-  update(dt) {
+  update(dt, cars, P) {
     this.updateTrees(dt);
+    this.updateFish(dt, cars || [], P);
     this.waterT += dt;
     if (this.flyMat) this.flyMat.uniforms.uT.value = this.waterT;
     const p = this.water.geometry.attributes.position, a = p.array, b = this.waterBase, t = this.waterT;
@@ -1777,7 +1864,7 @@ class CarView {
   dispose() {
     for (const o of this.objects) { this.scene.remove(o); }
     for (const sk of this.skins) sk.geo.dispose();
-    if (this.headlight) this.headlight.intensity = 0;
+    if (this.headlight) this.headlight.forEach(L => L.intensity = 0);
   }
   _applyDents(sk, dents) {
     const L = sk.local, nv = L.length / 3;
@@ -1838,16 +1925,15 @@ class CarView {
     }
     const v = this._v;
     for (const h of this.halos) { car.toWorld(h.l[0], h.l[1], h.l[2], v); h.m.position.set(v[0], v[1], v[2]); }
-    // fényszóró
-    car.toWorld(2.0, 0.05, 0, v);
-    const bx = v[0], by = v[1], bz = v[2];
-    const dx = f[0] - u[0] * 0.09, dy = f[1] - u[1] * 0.09, dz = f[2] - u[2] * 0.09;
-    if (this.headlight) {
-      const L = this.headlight;
-      L.position.set(bx, by, bz);
-      L.target.position.set(bx + dx * 20, by + dy * 20, bz + dz * 20);
+    // két fényszóró, a lámpák helyéről, enyhén kifelé fordítva
+    if (this.headlight) this.headlight.forEach((L, k) => {
+      const sz = k ? 1 : -1;
+      car.toWorld(2.05, 0.06, sz * 0.66, v);
+      const dx = f[0] - u[0] * 0.09 + r[0] * sz * 0.06, dy = f[1] - u[1] * 0.09 + r[1] * sz * 0.06, dz = f[2] - u[2] * 0.09 + r[2] * sz * 0.06;
+      L.position.set(v[0], v[1], v[2]);
+      L.target.position.set(v[0] + dx * 20, v[1] + dy * 20, v[2] + dz * 20);
       L.target.updateMatrixWorld();
-    }
+    });
     if (s.rocket) {
       for (const j of this.jets) {
         let lvl = j.type === 'boost' ? car.fxBoost : Math.max(car.fxUp, car.fxAtt * 0.35);
@@ -2374,11 +2460,12 @@ const Game = {
     const sun = this.sun = new THREE.DirectionalLight(0x9db2ff, 0.75);
     // fényszórók (előre létrehozva, hogy ne forduljon újra a shader)
     this.flashes = [0, 1].map(() => { const L = new THREE.PointLight(0x9fdcff, 0, 60, 1.6); sc.add(L); return L; });
-    this.headlights = [0, 1].map(() => {
-      const L = new THREE.SpotLight(0xeaf1ff, 0, 120, 0.52, 0.5, 1.5);
+    // autónként két fényszóró (bal, jobb)
+    this.headlights = [0, 1].map(() => [0, 1].map(() => {
+      const L = new THREE.SpotLight(0xeaf1ff, 0, 120, 0.46, 0.55, 1.5);
       sc.add(L); sc.add(L.target);
       return L;
-    });
+    }));
     sun.castShadow = true;
     sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
     const sh = sun.shadow.camera; sh.left = -55; sh.right = 55; sh.top = 55; sh.bottom = -55; sh.near = 1; sh.far = 400;
@@ -2456,7 +2543,7 @@ const Game = {
       const st = this.world.starts[n === 1 ? 0 : i];
       car.reset(st.x, st.z, st.yaw);
       this.cars.push(car);
-      this.headlights[i].intensity = 1500;
+      this.headlights[i].forEach(L => L.intensity = 850);
       this.views.push(new CarView(this.scene, car, i, this.headlights[i]));
       const cc = new CamCtl(this.cams[i], this.world);
       this.ctls.push(cc);
@@ -2645,7 +2732,7 @@ const Game = {
         UI.hud(i, c);
       });
     }
-    this.worldView.update(dt);
+    this.worldView.update(dt, this.cars, this.particles);
     this.render(dt);
     Input.endFrame();
   },
