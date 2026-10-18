@@ -132,7 +132,7 @@ body.menu-on #topinfo{display:none}
 <div id="menu">
   <div class="box">
     <div class="logo">TEREP <span>30</span></div>
-    <div class="sub"><b>v1.7.0</b> · 2026.10.18</div>
+    <div class="sub"><b>v1.7.1</b> · 2026.10.18</div>
     <div id="menu-list"></div>
     <div id="map-info"></div>
     <div class="foot">C:\TEREP30&gt; <span class="cursor"></span><br><span class="keys">↑↓ választás · ←→ / Enter módosítás · F1 irányítás · gamepad is működik</span></div>
@@ -2169,10 +2169,21 @@ function buildSky(scene, moonDir) {
       cl.add(m);
     }
     cl.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    cl.userData.sp = 0.7 + rnd() * 0.6;
     clouds.add(cl);
   }
   scene.add(clouds);
   return { sky, sun, clouds, stars };
+}
+// lassú szél: a felhők sodródnak, a pálya túlsó szélén visszatérnek
+const WIND = { x: Math.cos(0.6), z: Math.sin(0.6), v: 4.5 };
+function updateClouds(clouds, dt) {
+  for (const cl of clouds.children) {
+    const k = WIND.v * cl.userData.sp * dt;
+    cl.position.x += WIND.x * k; cl.position.z += WIND.z * k;
+    const d = Math.hypot(cl.position.x, cl.position.z);
+    if (d > 1050) { cl.position.x *= -0.92; cl.position.z *= -0.92; }
+  }
 }
 
 // ------------------------------------------------------------
@@ -3694,6 +3705,7 @@ const Game = {
       });
     }
     this.skyEvents.update(dt);
+    updateClouds(this.sky.clouds, dt);
     this.worldView.update(dt, this.cars, this.particles);
     this.render(dt);
     Input.endFrame();
