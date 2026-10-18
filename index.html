@@ -108,6 +108,19 @@ body.touch .foot .keys{display:none}
 #rotate .phone{width:46px;height:78px;border:3px solid var(--cy);border-radius:9px;animation:rot 2.2s ease-in-out infinite;margin-bottom:12px}
 @keyframes rot{0%,25%{transform:rotate(0)}55%,100%{transform:rotate(-90deg)}}
 @media (max-height:520px){#menu{align-items:flex-start;padding-top:12px;overflow:auto}.logo{font-size:44px}.sub{margin:4px 0 8px}.row{min-height:34px;padding:6px 14px;font-size:14px}.foot{margin-top:8px}}
+#online .nrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+#online label{color:var(--dim);font-size:13px;min-width:96px}
+#online input{font:15px var(--mono);background:#000;color:var(--ye);border:1px solid var(--line);padding:7px 10px;width:180px;outline:none;-webkit-user-select:text;user-select:text}
+#online input:focus{border-color:var(--cy)}
+.nbtn{font:14px var(--mono);background:var(--cy);color:#000;border:0;padding:8px 16px;cursor:pointer;margin:4px 0}
+.nbtn:disabled{opacity:.5;cursor:wait}
+.nhint{font-size:12px;color:var(--dim);line-height:1.6;margin:4px 0}
+#net-status{min-height:20px;margin:10px 0;font-size:13px;color:var(--cy)}
+#net-status.err{color:#ff5555}
+#netinfo{position:fixed;left:calc(14px + env(safe-area-inset-left,0px));top:calc(12px + env(safe-area-inset-top,0px));font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;pointer-events:none;z-index:6;background:rgba(0,0,0,.25);padding:6px 10px}
+#netinfo b{color:var(--ye);font-weight:400;letter-spacing:.08em}
+#netinfo div{margin-top:3px}
+#netinfo i{display:inline-block;width:9px;height:9px;margin-right:6px;vertical-align:0}
 #topinfo{position:fixed;right:14px;top:12px;font-size:11px;color:rgba(255,255,255,.8);text-shadow:1px 1px 0 #000;pointer-events:none;text-align:right}
 body.menu-on #topinfo{display:none}
 </style>
@@ -161,6 +174,21 @@ body.menu-on #topinfo{display:none}
   </div>
 </div>
 <div id="rotate" class="hidden"><div class="phone"></div><b>Fordítsd el a telefont</b><span>fekvő helyzetben játszható</span></div>
+<div id="netinfo" class="hidden"></div>
+<div id="online" class="modal hidden">
+  <div class="win" style="max-width:520px">
+    <h2>ONLINE JÁTÉK · MAX 6 FŐ</h2>
+    <div class="nrow"><label for="net-name">Neved</label><input id="net-name" maxlength="16" spellcheck="false" autocomplete="off"></div>
+    <h3>SZOBA LÉTREHOZÁSA</h3>
+    <div class="nhint">Te leszel a házigazda. Pálya: <span id="net-map"></span>. A kapott kódot küldd el a haverjaidnak.</div>
+    <button class="nbtn" id="net-host">Szoba létrehozása</button>
+    <h3>CSATLAKOZÁS</h3>
+    <div class="nrow"><label for="net-code">Szoba kódja</label><input id="net-code" maxlength="5" spellcheck="false" autocomplete="off" placeholder="ABCDE"><button class="nbtn" id="net-join">Csatlakozás</button></div>
+    <div id="net-status"></div>
+    <div class="nhint">Internet kell hozzá. A kapcsolat közvetlen (WebRTC); ha valakinél nem jön létre, az a hálózata (pl. céges wifi, mobilnet) korlátja lehet.</div>
+    <div class="btn" id="net-close">Bezárás</div>
+  </div>
+</div>
 <div id="topinfo"><span id="seedtag"></span><br>Esc szünet · F1 irányítás · M hang</div>
 
 <div id="pause" class="modal hidden">
@@ -219,6 +247,8 @@ body.menu-on #topinfo{display:none}
         </table>
       </div>
     </div>
+    <h3>ONLINE (MAX 6 FŐ)</h3>
+    <div style="font-size:12px;color:var(--dim);line-height:1.6">Főmenü → Online játék. Egyikőtök létrehozza a szobát, és elküldi az 5 betűs kódot; a többiek a kóddal csatlakoznak. A pályát a házigazda választja. Bárki bármikor beléphet és kiléphet; ha a házigazda kilép, a szoba megszűnik. Internet kell hozzá.</div>
     <h3>MOBILON</h3>
     <div style="font-size:12px;color:var(--dim);line-height:1.6">Bal oldali kar: kormány (levegőben bukás és dőlés). Jobb oldalt: GÁZ, FÉK (tolatás), BOOST, UGRÁS (nyomva tartva lebeg), KÉZIFÉK. Fent: szívás, kamera, visszaállítás, teljes képernyő, szünet. Egy ujjal a képen húzva körbenézhetsz. Fekvő helyzetben játszd; iPhone-on a Megosztás → Főképernyőhöz adás után teljes képernyőn fut.</div>
     <h3>A RAKÉTÁRÓL</h3>
@@ -1720,7 +1750,7 @@ const BODY = {
 };
 const EXH_Z = [-0.27, -0.09, 0.09, 0.27];
 const CAR_COLORS = {
-  raketa: [{ body: 0xf3f3f0, dark: 0x1a1c20 }, { body: 0x2b2e34, dark: 0xd9d9d9 }],
+  raketa: [{ body: 0xf3f3f0, dark: 0x1a1c20 }, { body: 0x2b2e34, dark: 0xd9d9d9 }, { body: 0xc8262c, dark: 0x1a1c20 }, { body: 0xf0c419, dark: 0x1a1c20 }, { body: 0x7b3fd1, dark: 0xe0e0e0 }, { body: 0x1f9e6e, dark: 0x1a1c20 }],
 };
 GB.prototype.cyl = function (cx, cy, cz, r, len, seg, hex) {
   // x tengely mentén
@@ -1744,7 +1774,7 @@ const haloTex = (red) => red ? (_haloR || (_haloR = radialTex('rgba(255,60,50,1)
 class CarView {
   constructor(scene, car, colorIdx, headlight) {
     this.car = car; this.scene = scene;
-    const s = car.spec, def = BODY[s.id], cols = CAR_COLORS[s.id][colorIdx % 2];
+    const s = car.spec, def = BODY[s.id], cols = CAR_COLORS[s.id][colorIdx % CAR_COLORS[s.id].length];
     const gb = new GB();
     const rings = def.sections.map(sec => {
       const ring = [];
@@ -2334,6 +2364,338 @@ class SkyEvents {
 
 'use strict';
 // ============================================================
+//  TEREP 30 – online játék (WebRTC P2P a PeerJS-en keresztül, max 6 fő)
+//  Csillag topológia: a szoba létrehozója a házigazda, ő továbbítja az állapotokat.
+//  Mindenki a saját autóját számolja, a többiek autója interpolált "szellem".
+// ============================================================
+const NET_MAX = 6;
+const NET_RATE = 1 / 15;
+const NET_DELAY = 0.12;
+const PEERJS_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+const PEER_PREFIX = 'terep30-v1-';
+
+function netCode() {
+  const ch = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = '';
+  for (let i = 0; i < 5; i++) s += ch[Math.floor(Math.random() * ch.length)];
+  return s;
+}
+function loadPeerJS() {
+  if (window.Peer) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = PEERJS_URL; s.onload = () => res(); s.onerror = () => rej(new Error('A PeerJS nem töltődött be (nincs internet?)'));
+    document.head.appendChild(s);
+  });
+}
+
+const Net = {
+  active: false, host: false, code: '', myId: 0, name: '',
+  peer: null, conns: new Map(), hostConn: null,
+  players: new Map(),   // id -> {id, name, conn?}
+  remotes: new Map(),   // id -> {car, view, label, buf:[], name, wrecked}
+  sendT: 0, pendDents: [], pendTrees: [],
+  onStatus: null,
+
+  status(msg, err) { if (this.onStatus) this.onStatus(msg, err); },
+
+  async hostRoom(name) {
+    this.name = name;
+    try { await loadPeerJS(); } catch (e) { this.status(e.message, true); return false; }
+    this.code = netCode();
+    this.status('Szoba létrehozása…');
+    return new Promise(resolve => {
+      const peer = this.peer = new Peer(PEER_PREFIX + this.code, Object.assign({ debug: 0 }, window.T30_PEER || {}));
+      peer.on('open', () => {
+        this.active = true; this.host = true; this.myId = 0;
+        this.players.clear(); this.players.set(0, { id: 0, name });
+        this.status('Szoba kész: ' + this.code);
+        resolve(true);
+      });
+      peer.on('connection', conn => this._hostAccept(conn));
+      peer.on('error', e => {
+        if (e.type === 'unavailable-id') { peer.destroy(); this.hostRoom(name).then(resolve); return; }
+        this.status('Hálózati hiba: ' + (e.type || e.message), true);
+        if (!this.active) resolve(false);
+      });
+      peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) { } });
+    });
+  },
+  _hostAccept(conn) {
+    conn.on('open', () => {
+      conn.on('data', d => this._hostData(conn, d));
+      conn.on('close', () => this._dropConn(conn));
+      conn.on('error', () => this._dropConn(conn));
+    });
+  },
+  _freeId() { for (let i = 1; i < NET_MAX; i++) if (!this.players.has(i)) return i; return -1; },
+  _hostData(conn, d) {
+    if (d.t === 'hello') {
+      const id = this._freeId();
+      if (id < 0) { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); return; }
+      conn.netId = id;
+      const name = String(d.name || 'Játékos').slice(0, 16);
+      this.players.set(id, { id, name, conn });
+      this.conns.set(id, conn);
+      const list = [...this.players.values()].map(p => ({ id: p.id, name: p.name }));
+      conn.send({ t: 'welcome', id, map: Game.cfg.map, seed: Game.cfg.seed, players: list, trees: this._downTrees() });
+      this._broadcast({ t: 'join', id, name }, id);
+      this.addRemote(id, name);
+      UI.toast(0, name + ' csatlakozott');
+      UI.netList();
+      return;
+    }
+    const id = conn.netId;
+    if (id === undefined) return;
+    if (d.t === 's') {
+      d.id = id;
+      const p = this.players.get(id); if (p) p.last = d;
+      this._recvState(d);
+    } else if (d.t === 'e') {
+      d.id = id;
+      this._broadcast(d, id);
+      this._recvEvent(d);
+    }
+  },
+  _downTrees() { const out = []; Game.world.trees.forEach((t, i) => { if (t.down) out.push(i); }); return out; },
+  _dropConn(conn) {
+    const id = conn.netId;
+    if (id === undefined || !this.players.has(id)) return;
+    const name = this.players.get(id).name;
+    this.players.delete(id); this.conns.delete(id);
+    this.removeRemote(id);
+    this._broadcast({ t: 'leave', id });
+    UI.toast(0, name + ' kilépett');
+    UI.netList();
+  },
+  _broadcast(msg, exceptId) {
+    for (const [id, c] of this.conns) if (id !== exceptId && c.open) { try { c.send(msg); } catch (e) { } }
+  },
+
+  async joinRoom(code, name) {
+    this.name = name;
+    code = String(code || '').trim().toUpperCase();
+    if (code.length < 4) { this.status('Írd be a szoba kódját', true); return false; }
+    try { await loadPeerJS(); } catch (e) { this.status(e.message, true); return false; }
+    this.status('Kapcsolódás a ' + code + ' szobához…');
+    return new Promise(resolve => {
+      const peer = this.peer = new Peer(Object.assign({ debug: 0 }, window.T30_PEER || {}));
+      let done = false;
+      const fail = (m) => { if (done) return; done = true; this.status(m, true); try { peer.destroy(); } catch (e) { } resolve(false); };
+      const to = setTimeout(() => fail('Nem sikerült kapcsolódni. Jó a kód? Fut még a szoba?'), 12000);
+      peer.on('open', () => {
+        const conn = this.hostConn = peer.connect(PEER_PREFIX + code, { serialization: 'json', reliable: true });
+        conn.on('open', () => conn.send({ t: 'hello', name }));
+        conn.on('data', d => {
+          if (d.t === 'full') { clearTimeout(to); fail('A szoba megtelt (max ' + NET_MAX + ' fő)'); return; }
+          if (d.t === 'welcome' && !done) {
+            clearTimeout(to); done = true;
+            this.active = true; this.host = false; this.myId = d.id; this.code = code;
+            this.players.clear();
+            for (const p of d.players) this.players.set(p.id, p);
+            this._welcome = d;
+            resolve(true);
+            return;
+          }
+          this._clientData(d);
+        });
+        conn.on('close', () => { if (this.active) this.lost('A házigazda kilépett'); });
+        conn.on('error', () => { if (this.active) this.lost('Megszakadt a kapcsolat'); });
+      });
+      peer.on('error', e => {
+        if (e.type === 'peer-unavailable') fail('Nincs ilyen szoba: ' + code);
+        else fail('Hálózati hiba: ' + (e.type || e.message));
+      });
+    });
+  },
+  // a világ felépítése után hívjuk: a többiek autóinak létrehozása
+  afterStart() {
+    if (!this.active) return;
+    if (!this.host && this._welcome) {
+      for (const p of this._welcome.players) if (p.id !== this.myId) this.addRemote(p.id, p.name);
+      for (const i of this._welcome.trees || []) { const t = Game.world.trees[i]; if (t) { t.down = true; t.fallYaw = 0; } }
+      this._welcome = null;
+    }
+    UI.netList();
+  },
+  _clientData(d) {
+    if (d.t === 'b') { for (const s of d.s) this._recvState(s); }
+    else if (d.t === 'e') this._recvEvent(d);
+    else if (d.t === 'join') { this.players.set(d.id, { id: d.id, name: d.name }); this.addRemote(d.id, d.name); UI.toast(0, d.name + ' csatlakozott'); UI.netList(); }
+    else if (d.t === 'leave') { const p = this.players.get(d.id); this.players.delete(d.id); this.removeRemote(d.id); if (p) UI.toast(0, p.name + ' kilépett'); UI.netList(); }
+  },
+  lost(msg) {
+    this.leave();
+    Game.toMenu();
+    UI.netOpen(msg, true);
+  },
+  leave() {
+    this.active = false;
+    for (const id of [...this.remotes.keys()]) this.removeRemote(id);
+    try { if (this.peer) this.peer.destroy(); } catch (e) { }
+    this.peer = null; this.hostConn = null; this.conns.clear(); this.players.clear();
+    this.pendDents = []; this.pendTrees = [];
+  },
+
+  // ---- távoli autók
+  addRemote(id, name) {
+    if (id === this.myId || this.remotes.has(id) || !Game.world || Game.state !== 'play') return;
+    const car = new Car(SPECS.raketa, Game.world);
+    const st = spawnPoint(Game.world, id);
+    car.reset(st.x, st.z, st.yaw);
+    const view = new CarView(Game.scene, car, id, null);
+    const label = makeLabel(name, id);
+    Game.scene.add(label);
+    this.remotes.set(id, { car, view, label, buf: [], name, wrecked: false });
+  },
+  removeRemote(id) {
+    const r = this.remotes.get(id); if (!r) return;
+    r.view.dispose(); Game.scene.remove(r.label); r.label.material.map.dispose(); r.label.material.dispose();
+    this.remotes.delete(id);
+  },
+  _recvState(s) {
+    if (s.id === this.myId) return;
+    let r = this.remotes.get(s.id);
+    if (!r) { const p = this.players.get(s.id); this.addRemote(s.id, p ? p.name : 'Játékos'); r = this.remotes.get(s.id); if (!r) return; }
+    if (s.q !== undefined && r.lastQ !== undefined && s.q <= r.lastQ) return;
+    r.lastQ = s.q;
+    s.rt = performance.now() / 1000;
+    r.buf.push(s);
+    if (r.buf.length > 12) r.buf.shift();
+  },
+  _recvEvent(d) {
+    const r = this.remotes.get(d.id);
+    if (d.dn && r) for (const x of d.dn) r.car.dents.push({ lx: x[0], ly: x[1], lz: x[2], nx: x[3], ny: x[4], nz: x[5], amt: x[6] });
+    if (d.tr) for (const i of d.tr) { const t = Game.world.trees[i]; if (t && !t.down) { t.down = true; t.fallYaw = d.fy || 0; } }
+    if (d.rp && r) { r.car.dents.length = 0; r.car.repairs++; }
+    if (d.wk && r) remoteWreckFx(r.car);
+  },
+
+  // ---- saját állapot küldése, távoliak frissítése (képkockánként)
+  update(dt, car) {
+    if (!this.active) return;
+    if (car) {
+      // események: horpadások, kidőlt fák, javítás, totálkár
+      if (car._netRep !== car.repairs) { car._netRep = car.repairs; this._sendEvent({ rp: 1 }); }
+      if (car._netWreck !== !!car.wrecked) { car._netWreck = !!car.wrecked; if (car.wrecked) this._sendEvent({ wk: 1 }); }
+    }
+    this.sendT -= dt;
+    if (car && this.sendT <= 0) {
+      this.sendT = NET_RATE;
+      const st = this._pack(car);
+      if (this.host) {
+        // csomag minden kliensnek: mindenki más legutóbbi állapota
+        st.id = 0;
+        const all = [st];
+        for (const p of this.players.values()) if (p.id !== 0 && p.last) all.push(p.last);
+        for (const [id, c] of this.conns) if (c.open) { try { c.send({ t: 'b', s: all.filter(x => x.id !== id) }); } catch (e) { } }
+      } else if (this.hostConn && this.hostConn.open) {
+        try { this.hostConn.send(st); } catch (e) { }
+      }
+    }
+    // távoli autók interpolálása
+    const now = performance.now() / 1000 - NET_DELAY;
+    for (const r of this.remotes.values()) this._interp(r, now, dt);
+  },
+  // horpadás/fa események gyűjtése a saját autóból
+  noteDent(d) { this.pendDents.push([+d.lx.toFixed(2), +d.ly.toFixed(2), +d.lz.toFixed(2), +d.nx.toFixed(2), +d.ny.toFixed(2), +d.nz.toFixed(2), +d.amt.toFixed(3)]); },
+  noteTree(t) { const i = Game.world.trees.indexOf(t); if (i >= 0) { this.pendTrees.push(i); this._treeYaw = t.fallYaw || 0; } },
+  flushEvents() {
+    if (!this.active) return;
+    if (this.pendDents.length || this.pendTrees.length) {
+      this._sendEvent({ dn: this.pendDents.length ? this.pendDents : undefined, tr: this.pendTrees.length ? this.pendTrees : undefined, fy: this._treeYaw });
+      this.pendDents = []; this.pendTrees = [];
+    }
+  },
+  _sendEvent(o) {
+    const m = Object.assign({ t: 'e' }, o);
+    if (this.host) { m.id = 0; this._broadcast(m); }
+    else if (this.hostConn && this.hostConn.open) { try { this.hostConn.send(m); } catch (e) { } }
+  },
+  _pack(car) {
+    car.frame();
+    const c = car.c, n = [];
+    for (let i = 0; i < 16; i++) n.push(Math.round((car.x[i] - c[0]) * 100), Math.round((car.y[i] - c[1]) * 100), Math.round((car.z[i] - c[2]) * 100));
+    const w = [];
+    for (const wh of car.wheels) w.push(Math.round(wh.t * 1000), Math.round((wh.steer || 0) * 100), Math.round((wh.spinRate || 0) * 10));
+    this.seq = (this.seq || 0) + 1;
+    return {
+      t: 's', q: this.seq, c: [+c[0].toFixed(3), +c[1].toFixed(3), +c[2].toFixed(3)], n, w,
+      v: [+car.v[0].toFixed(2), +car.v[1].toFixed(2), +car.v[2].toFixed(2)],
+      fx: [+car.fxBoost.toFixed(2), +Math.min(1.5, car.fxUp).toFixed(2), car.fxAtt ? 1 : 0, car.suctionOn ? 1 : 0, car.contacts],
+      wr: car.wrecked ? 1 : 0,
+    };
+  },
+  _interp(r, now, dt) {
+    const b = r.buf, car = r.car;
+    if (!b.length) return;
+    let a = b[0], c = b[b.length - 1], k = 0;
+    for (let i = 0; i < b.length - 1; i++) if (b[i].rt <= now && b[i + 1].rt >= now) { a = b[i]; c = b[i + 1]; k = (now - a.rt) / Math.max(1e-3, c.rt - a.rt); break; }
+    if (now > c.rt) { a = c; k = 0; }
+    const ext = now > c.rt ? Math.min(0.25, now - c.rt) : 0;
+    const L = (p, q) => p + (q - p) * k;
+    const cx = L(a.c[0], c.c[0]) + a.v[0] * ext, cy = L(a.c[1], c.c[1]) + a.v[1] * ext, cz = L(a.c[2], c.c[2]) + a.v[2] * ext;
+    for (let i = 0; i < 16; i++) {
+      car.x[i] = cx + L(a.n[i * 3], c.n[i * 3]) / 100;
+      car.y[i] = cy + L(a.n[i * 3 + 1], c.n[i * 3 + 1]) / 100;
+      car.z[i] = cz + L(a.n[i * 3 + 2], c.n[i * 3 + 2]) / 100;
+      car.vx[i] = L(a.v[0], c.v[0]); car.vy[i] = L(a.v[1], c.v[1]); car.vz[i] = L(a.v[2], c.v[2]);
+    }
+    car.wheels.forEach((wh, j) => { wh.t = L(a.w[j * 3], c.w[j * 3]) / 1000; wh.steer = L(a.w[j * 3 + 1], c.w[j * 3 + 1]) / 100; wh.spinRate = c.w[j * 3 + 2] / 10; });
+    car.fxBoost = c.fx[0]; car.fxUp = c.fx[1]; car.fxAtt = c.fx[2]; car.suctionOn = !!c.fx[3]; car.contacts = c.fx[4];
+    car.frame();
+    r.view.update(dt);
+    car.toWorld(0, 1.6, 0, Net._v);
+    r.label.position.set(Net._v[0], Net._v[1], Net._v[2]);
+    if (c.wr && Math.random() < 0.6) Game.particles.emit(car.c[0], car.c[1] + 0.6, car.c[2], (Math.random() - 0.5), 1.8, (Math.random() - 0.5), 0x23252c, 1.2, 2.2, 0.5, 1.6, -0.5);
+  },
+  _v: [0, 0, 0],
+};
+
+function spawnPoint(W, id) {
+  const lane = [-12, 16, -4, 8, -18, 22][id % 6], back = -82 - Math.floor(id / 2) * 0;
+  const [x, z] = W.fromZone(back, lane);
+  return { x, z, yaw: W.zone.yaw };
+}
+function makeLabel(name, id) {
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 96;
+  const x = cv.getContext('2d');
+  x.font = 'bold 54px "Lucida Console", Consolas, "DejaVu Sans Mono", monospace';
+  const w = Math.min(500, x.measureText(name).width + 40);
+  x.fillStyle = 'rgba(0,0,170,0.78)'; x.fillRect((512 - w) / 2, 10, w, 76);
+  x.strokeStyle = NET_COLORS_CSS[id % 6]; x.lineWidth = 5; x.strokeRect((512 - w) / 2, 10, w, 76);
+  x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(name, 256, 50);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, fog: false }));
+  s.scale.set(4, 0.75, 1);
+  return s;
+}
+const NET_COLORS_CSS = ['#f3f3f0', '#55ffff', '#ff5555', '#ffff55', '#ff55ff', '#55ff55'];
+function remoteWreckFx(car) {
+  const P = Game.particles, c = car.c;
+  for (let k = 0; k < 90; k++) {
+    const a = Math.random() * Math.PI * 2, e = Math.random() * 1.2, sp = 6 + Math.random() * 12;
+    P.emit(c[0], c[1] + 0.3, c[2], Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp + 3, Math.sin(a) * Math.cos(e) * sp, k % 3 === 0 ? 0xffb347 : (k % 3 === 1 ? 0x9fe8ff : 0xffffff), 0.16 + Math.random() * 0.12, 0.6 + Math.random() * 0.8, 1, 0, 9);
+  }
+  Sound.crash(0.6);
+}
+// egyoldalú ütközés: a saját autót eltolja a távoli autó dobozából
+function carPushFrom(P, Q) {
+  if (Math.abs(P.c[0] - Q.c[0]) > 8 || Math.abs(P.c[2] - Q.c[2]) > 8 || Math.abs(P.c[1] - Q.c[1]) > 8) return;
+  const hx = Q.spec.len / 2, hy = Q.spec.h / 2 + 0.05, hz = Q.spec.wid / 2, r = P.spec.nodeR;
+  for (let i = 0; i < 16; i++) {
+    const dx = P.x[i] - Q.c[0], dy = P.y[i] - Q.c[1], dz = P.z[i] - Q.c[2];
+    const lf = dx * Q.f[0] + dy * Q.f[1] + dz * Q.f[2], lu = dx * Q.u[0] + dy * Q.u[1] + dz * Q.u[2], lr = dx * Q.r[0] + dy * Q.r[1] + dz * Q.r[2];
+    const pf = hx + r - Math.abs(lf), pu = hy + r - Math.abs(lu), pr = hz + r - Math.abs(lr);
+    if (pf <= 0 || pu <= 0 || pr <= 0) continue;
+    let n, pen;
+    if (pf < pu && pf < pr) { n = Q.f; pen = pf * Math.sign(lf); } else if (pu < pr) { n = Q.u; pen = pu * Math.sign(lu); } else { n = Q.r; pen = pr * Math.sign(lr); }
+    pen = Math.max(-0.03, Math.min(0.03, pen));
+    P.x[i] += n[0] * pen; P.y[i] += n[1] * pen; P.z[i] += n[2] * pen;
+  }
+}
+
+'use strict';
+// ============================================================
 //  TEREP 30 – irányítás, hang, menü, játékciklus
 // ============================================================
 
@@ -2653,15 +3015,16 @@ const Game = {
     this.ensureWorld();
     this.world.resetDynamic(); this.worldView.resetTrees();
     this.clearCars();
-    const n = this.cfg.players;
+    const online = Net.active;
+    const n = online ? 1 : this.cfg.players;
     for (let i = 0; i < n; i++) {
       const spec = SPECS[this.cfg.car[i]];
       const car = new Car(spec, this.world);
-      const st = this.world.starts[n === 1 ? 0 : i];
+      const st = online ? spawnPoint(this.world, Net.myId) : this.world.starts[n === 1 ? 0 : i];
       car.reset(st.x, st.z, st.yaw);
       this.cars.push(car);
       this.headlights[i].forEach(L => L.intensity = 850);
-      this.views.push(new CarView(this.scene, car, i, this.headlights[i]));
+      this.views.push(new CarView(this.scene, car, online ? Net.myId : i, this.headlights[i]));
       const cc = new CamCtl(this.cams[i], this.world);
       this.ctls.push(cc);
       this.voices.push(Sound.makeVoice(spec.rocket));
@@ -2669,7 +3032,8 @@ const Game = {
     this.state = 'play'; this.paused = false;
     Input.keys.clear(); Input.pressed.clear(); Touch.clear();
     UI.showGame(n);
-    UI.toast(0, 'TEREP30.EXE betöltve');
+    Net.afterStart();
+    UI.toast(0, online ? (Net.host ? 'Szoba kódja: ' + Net.code : 'Csatlakoztál: ' + Net.code) : 'TEREP30.EXE betöltve');
     if (n > 1) UI.toast(1, 'TEREP30.EXE betöltve');
   },
   clearCars() {
@@ -2680,6 +3044,7 @@ const Game = {
     this.cars = []; this.views = []; this.ctls = []; this.voices = [];
   },
   toMenu() {
+    if (Net.active) Net.leave();
     this.clearCars();
     this.state = 'menu'; this.paused = false;
     UI.showMenu();
@@ -2774,6 +3139,7 @@ const Game = {
     for (let k = 0; k < n; k++) {
       for (const c of cars) c.substepA(h);
       if (cars.length === 2) carCarCollide(cars[0], cars[1]);
+      if (Net.active) for (const r of Net.remotes.values()) carPushFrom(cars[0], r.car);
       for (const c of cars) c.substepB(h);
     }
   },
@@ -2818,6 +3184,7 @@ const Game = {
       }
       if (car.treeHit) {
         const t = car.treeHit; car.treeHit = null;
+        if (Net.active) Net.noteTree(t);
         for (let k = 0; k < 26; k++) P.emit(t.x + (Math.random() - 0.5) * 2, t.y + 1 + Math.random() * t.h * 0.7, t.z + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 5, Math.random() * 3, (Math.random() - 0.5) * 5, k % 3 ? 0x4f8d45 : 0x8a6a45, 0.35 + Math.random() * 0.3, 1.2 + Math.random(), 0.8, 0.6, 2.5);
         Sound.crash(0.35);
       }
@@ -2834,11 +3201,18 @@ const Game = {
     dt = Math.min(dt, 1 / 20);
     Input.poll();
     UI.frame(dt);
-    if (this.state === 'play' && !this.paused) {
-      for (let i = 0; i < this.cars.length; i++) this.readControls(i, dt);
+    // online módban a szünet nem állítja meg a világot
+    if (this.state === 'play' && (!this.paused || Net.active)) {
+      for (let i = 0; i < this.cars.length; i++) { if (this.paused) Object.assign(this.cars[i].ctl, { throttle: 0, brake: 0.3, steer: 0, boost: 0, up: 0, pitch: 0, roll: 0 }); else this.readControls(i, dt); }
       for (let i = 0; i < this.cars.length; i++) this.updateWreck(i, dt);
       this.physics(dt);
       this.effects(dt);
+    }
+    if (this.state === 'play' && Net.active) {
+      const me = this.cars[0];
+      if (me) for (const d of me.dents) Net.noteDent(d);
+      Net.flushEvents();
+      Net.update(dt, me);
     }
     if (this.state === 'play') {
       this.cars.forEach((c, i) => {
@@ -2917,6 +3291,7 @@ const UI = {
       { id: 'start', label: 'JÁTÉK INDÍTÁSA', big: true },
       { id: 'players', label: 'Játékosok', val: c.players === 1 ? '1 játékos' : '2 játékos · osztott képernyő' },
     ];
+    rows.push({ id: 'online', label: 'Online játék (max 6 fő)', btn: true });
     rows.push({ id: 'map', label: 'Pálya', val: c.map === 'classic' ? 'Klasszikus' : 'Generált' });
     if (c.map === 'gen') rows.push({ id: 'seed', label: 'Seed', seed: true }, { id: 'newseed', label: 'Új véletlen seed', btn: true });
     if (Screen.canFull()) rows.push({ id: 'full', label: Screen.isFull() ? 'Kilépés a teljes képernyőből' : 'Teljes képernyő', btn: true });
@@ -2980,6 +3355,7 @@ const UI = {
       case 'seed': { const si = $('seed-input-row'); if (si) si.focus(); return; }
       case 'newseed': c.seed = randomSeed(); Game.ensureWorld(); break;
       case 'help': this.toggleHelp(true); return;
+      case 'online': this.netOpen(); return;
       case 'full': Screen.toggle().then(() => this.buildMenu()); return;
     }
     Sound.blip(760, 0.04);
@@ -2987,6 +3363,7 @@ const UI = {
   },
   key(e) {
     if (e.target && e.target.tagName === 'INPUT') return;
+    if (!$('online').classList.contains('hidden')) { if (e.code === 'Escape') $('online').classList.add('hidden'); return; }
     if (e.code === 'F1' || (e.code === 'KeyH' && Game.state !== 'play')) { this.toggleHelp(); e.preventDefault(); return; }
     if (e.code === 'KeyM') { const m = Sound.toggleMute(); if (Game.state === 'play') this.toast(0, m ? 'Hang: KI' : 'Hang: BE'); return; }
     if (!this.help.classList.contains('hidden')) { if (e.code === 'Escape' || e.code === 'Enter') this.toggleHelp(false); return; }
@@ -3041,12 +3418,13 @@ const UI = {
   drawPause() { this.pauseItems.forEach((el, i) => el.classList.toggle('sel', i === this.psel)); },
   pauseAct(a) {
     if (a === 'resume') this.setPause(false);
-    else if (a === 'restart') { this.setPause(false); Game.start(); }
+    else if (a === 'restart') { this.setPause(false); if (Net.active) { const st = spawnPoint(Game.world, Net.myId); Game.cars[0].reset(st.x, st.z, st.yaw); } else Game.start(); }
     else if (a === 'menu') { this.setPause(false); Game.toMenu(); }
     else if (a === 'help') this.toggleHelp(true);
   },
   showMenu() {
     document.body.classList.remove('playing');
+    $('netinfo').classList.add('hidden');
     this.menu.classList.remove('hidden');
     this.huds.forEach(h => h.classList.add('hidden'));
     document.body.classList.remove('split');
@@ -3071,6 +3449,39 @@ const UI = {
     const w = h.querySelector('.wreck');
     w.classList.toggle('on', on);
     if (on) w.querySelector('span').textContent = sec ? 'akkumulátor-zárlat · újraindulás ' + sec + ' mp' : 'akkumulátor-zárlat';
+  },
+  // ---- online panel
+  netOpen(msg, err) {
+    const P = $('online');
+    P.classList.remove('hidden');
+    const ni = $('net-name');
+    if (!ni.value) { let n = ''; try { n = localStorage.getItem('t30name') || ''; } catch (e) { } ni.value = n || ('Pilóta' + Math.floor(10 + Math.random() * 89)); }
+    $('net-map').textContent = Game.cfg.map === 'classic' ? 'Klasszikus pálya' : 'Generált pálya · seed: ' + Game.cfg.seed;
+    this.netStatus(msg || '', err);
+    if (!this._netInit) {
+      this._netInit = true;
+      Net.onStatus = (m, e) => this.netStatus(m, e);
+      const name = () => { const v = ($('net-name').value || '').trim().slice(0, 16) || 'Pilóta'; try { localStorage.setItem('t30name', v); } catch (e) { } return v; };
+      const busy = (b) => { $('net-host').disabled = b; $('net-join').disabled = b; };
+      $('net-host').onclick = async () => { Sound.init(); busy(true); const ok = await Net.hostRoom(name()); busy(false); if (ok) { P.classList.add('hidden'); Game.cfg.players = 1; Game.start(); } };
+      $('net-join').onclick = async () => {
+        Sound.init(); busy(true);
+        const ok = await Net.joinRoom($('net-code').value, name()); busy(false);
+        if (ok) { const w = Net._welcome; Game.cfg.map = w.map; Game.cfg.seed = w.seed; Game.cfg.players = 1; Game.ensureWorld(); P.classList.add('hidden'); Game.start(); }
+      };
+      $('net-close').onclick = () => P.classList.add('hidden');
+      $('net-code').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') $('net-join').click(); });
+      $('net-name').addEventListener('keydown', e => e.stopPropagation());
+      $('net-code').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); });
+    }
+  },
+  netStatus(m, err) { const s = $('net-status'); s.textContent = m || ''; s.classList.toggle('err', !!err); },
+  netList() {
+    const el = $('netinfo');
+    if (!Net.active) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    const ps = [...Net.players.values()].sort((a, b) => a.id - b.id);
+    el.innerHTML = `<b>SZOBA ${Net.code}</b> · ${ps.length}/${NET_MAX}` + ps.map(p => `<div><i style="background:${NET_COLORS_CSS[p.id % 6]}"></i>${p.name.replace(/[<>&]/g, '')}${p.id === Net.myId ? ' (te)' : ''}${p.id === 0 ? ' ★' : ''}</div>`).join('');
   },
   toast(i, msg) {
     const h = this.huds[i]; if (!h) return;
