@@ -12,6 +12,7 @@
 :root{color-scheme:dark;--cy:#55ffff;--ye:#ffff55;--bl:#0000aa;--mg:#ff55ff;--panel:rgba(10,14,22,.78);--line:rgba(85,255,255,.55);--txt:#e9eef2;--dim:#9aa7b2;
 --mono:"Lucida Console","Consolas","DejaVu Sans Mono","Courier New",monospace}
 *{box-sizing:border-box}
+html{touch-action:manipulation}
 html,body{margin:0;height:100%;overflow:hidden;background:#10162e;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;color:var(--txt);font-family:var(--mono)}
 canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block}
 .hidden{display:none!important}
@@ -1706,7 +1707,7 @@ const BODY = {
       S(-2.32, [0.92, -0.26], [0.98, 0.02], [0.95, 0.32], [0.62, 0.36], [0, 0.36]),
     ],
     color(si, band, c) {
-      if (band === 4) return 0x0c0d0f;
+      if (band === 4 || band === 5) return 0x0c0d0f;
       if (band === 0) return (si >= 6 && si <= 9) || si === 0 ? 0x121316 : c.body;
       if (band === 2 && si >= 7 && si <= 9) return 0x141b24;
       if (band === 3 && si === 7) return 0x141b24;
@@ -1715,10 +1716,6 @@ const BODY = {
     },
     front: (c) => c.body, rear: (c) => c.body,
     extras(gb, c) {
-      // kerékjáratok belső fala
-      for (const wx of [1.375, -1.375]) for (const sz of [-1, 1]) {
-        gb.box(wx, -0.11, sz * 0.66, 0.84, 0.44, 0.03, 0x0b0c0e);
-      }
       // első légbeömlők
       for (const sz of [-1, 1]) gb.box(2.27, -0.22, sz * 0.5, 0.08, 0.1, 0.42, 0x0d0e10);
       gb.box(2.3, -0.27, 0, 0.06, 0.05, 0.5, 0x0d0e10);
@@ -1737,10 +1734,21 @@ const BODY = {
       }
       gb.box(-2.345, -0.11, 0, 0.04, 0.2, 0.74, 0x16171a);
     },
-    lights(gl) {
+    lights(gl, def) {
+      // egy darabból álló, a motorháztető lejtőjére simuló, ék alakú lámpa
+      const A = def.sections[0], B = def.sections[1];
+      const pt = (x, s, sz) => {
+        const t = (A.x - x) / (A.x - B.x);
+        const za = A.p[3][0] + (A.p[2][0] - A.p[3][0]) * s, ya = A.p[3][1] + (A.p[2][1] - A.p[3][1]) * s;
+        const zb = B.p[3][0] + (B.p[2][0] - B.p[3][0]) * s, yb = B.p[3][1] + (B.p[2][1] - B.p[3][1]) * s;
+        return [x, ya + (yb - ya) * t + 0.035, sz * (za + (zb - za) * t)];
+      };
       for (const sz of [-1, 1]) {
-        gl.box(1.98, 0.065, sz * 0.66, 0.26, 0.03, 0.34, 0xf4f8ff);
-        gl.box(2.12, -0.02, sz * 0.62, 0.18, 0.02, 0.22, 0xbfe8ff);
+        const q = [pt(2.25, 0.30, sz), pt(2.22, 0.92, sz), pt(2.02, 0.95, sz), pt(1.98, 0.42, sz)];
+        for (const dn of [[0.3, 1, 0], [-0.3, -1, 0]]) gl.quad(q[0], q[1], q[2], q[3], 0xf4f8ff, dn);
+        const e = [pt(2.255, 0.28, sz), pt(2.235, 0.95, sz), pt(2.23, 0.95, sz), pt(2.25, 0.28, sz)];
+        e[2][1] -= 0.03; e[3][1] -= 0.03;
+        for (const dn of [[1, 0, 0], [-1, 0, 0]]) gl.quad(e[0], e[1], e[2], e[3], 0xbfe8ff, dn);
       }
       gl.box(-2.35, 0.2, 0, 0.02, 0.035, 1.78, 0xff1a1a);
       for (const sz of [-1, 1]) gl.box(-2.35, 0.17, sz * 0.86, 0.02, 0.09, 0.08, 0xff2a2a);
@@ -1777,13 +1785,16 @@ class CarView {
     const s = car.spec, def = BODY[s.id], cols = CAR_COLORS[s.id][colorIdx % CAR_COLORS[s.id].length];
     const gb = new GB();
     const rings = def.sections.map(sec => {
-      const ring = [];
+      // belső alsó pontok: az alj végig lent marad, a kerékív "plafonja" csak a kerék fölött emelkedik
+      const p0y = sec.p[0][1], yIn = p0y < -0.25 ? p0y : -0.33, zIn = Math.min(0.62, sec.p[0][0] - 0.05);
+      const ring = [[sec.x, yIn, zIn]];
       for (const [z, y] of sec.p) ring.push([sec.x, y, z]);
       for (let k = sec.p.length - 2; k >= 0; k--) ring.push([sec.x, sec.p[k][1], -sec.p[k][0]]);
+      ring.push([sec.x, yIn, -zIn]);
       let ay = 0; for (const p of ring) ay += p[1]; ay /= ring.length;
       return { ring, ay, x: sec.x };
     });
-    const bandOf = [0, 1, 2, 3, 3, 2, 1, 0, 4];
+    const bandOf = [5, 0, 1, 2, 3, 3, 2, 1, 0, 5, 4];
     for (let si = 0; si < rings.length - 1; si++) {
       const A = rings[si], B = rings[si + 1], nR = A.ring.length;
       for (let k = 0; k < nR; k++) {
@@ -1792,7 +1803,7 @@ class CarView {
         const cy = (a[1] + b[1] + c[1] + d[1]) / 4, cz = (a[2] + b[2] + c[2] + d[2]) / 4;
         // kifelé mutató irány sávonként (a kerékíveknél az átlag-alapú becslés hibázna)
         const band = bandOf[k], sz = Math.sign(cz) || 1;
-        let dn = band === 4 ? [0, -1, 0] : band === 3 ? [0, 1, 0] : band === 2 ? [0, 0.6, sz] : [0, 0, sz];
+        let dn = band === 4 ? [0, -1, 0] : band === 5 ? [0, -1, sz * 0.6] : band === 3 ? [0, 1, 0] : band === 2 ? [0, 0.6, sz] : [0, 0, sz];
         const hex = def.color(si, band, cols);
         gb.tri(a, b, c, hex, dn); gb.tri(a, c, d, hex, dn);
       }
@@ -1803,7 +1814,7 @@ class CarView {
     }
     def.extras(gb, cols);
     const gl = new GB();
-    def.lights(gl);
+    def.lights(gl, def);
     this.skins = [];
     this.body = this._skinned(gb.geometry(), lambert(), true);
     this.lightMesh = this._skinned(gl.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), false);
@@ -3052,7 +3063,7 @@ const Game = {
   // 100% sérülés: zárlat, robbanás, rövid szünet, aztán megjavítva újraindul
   wreck(i) {
     const car = this.cars[i];
-    car.wrecked = true; car.wreckT = 3.5; car.wrecks = (car.wrecks || 0) + 1;
+    car.wrecked = true; car.wreckT = 6; car.wrecks = (car.wrecks || 0) + 1;
     car.frame();
     const c = car.c;
     for (let k = 0; k < 16; k++) {
@@ -3088,10 +3099,13 @@ const Game = {
     UI.wreck(i, true, Math.ceil(car.wreckT));
     if (car.wreckT <= 0) {
       car.wrecked = false;
-      car.resetHere();
+      // vissza a kezdőpontra
+      const st = Net.active ? spawnPoint(this.world, Net.myId) : this.world.starts[this.cars.length === 1 ? 0 : i];
+      car.reset(st.x, st.z, st.yaw);
+      this.ctls[i].snap = true;
       car.suctionOn = true;
       UI.wreck(i, false);
-      UI.toast(i, 'Megjavítva · totálkár: ' + car.wrecks);
+      UI.toast(i, 'Új autó a startnál · totálkár: ' + car.wrecks);
     }
   },
   readControls(i, dt) {
@@ -3513,6 +3527,18 @@ const UI = {
   }
 };
 
+// mobilon ne nagyítson bele a dupla koppintás vagy a csípés
+(function () {
+  let last = 0;
+  document.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (now - last < 350 && !(e.target && e.target.tagName === 'INPUT')) e.preventDefault();
+    last = now;
+  }, { passive: false });
+  document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+  for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+  document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+})();
 addEventListener('load', () => {
   try { Game.init(); }
   catch (e) { console.error(e); document.body.insertAdjacentHTML('beforeend', '<pre style="position:fixed;inset:20px;color:#ff5555;z-index:99;font:14px monospace;white-space:pre-wrap">Hiba: ' + e.message + '\n' + (e.stack || '') + '</pre>'); }
