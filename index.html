@@ -122,6 +122,26 @@ body.touch .foot .keys{display:none}
 #netinfo b{color:var(--ye);font-weight:400;letter-spacing:.08em}
 #netinfo div{margin-top:3px}
 #netinfo i{display:inline-block;width:9px;height:9px;margin-right:6px;vertical-align:0}
+#online select{font:14px var(--mono);background:#000;color:var(--ye);border:1px solid var(--line);padding:6px 8px;outline:none}
+#pause .hostonly{display:none}
+body.nethost #pause .hostonly{display:block}
+#taghud{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top,0px));transform:translateX(-50%);text-align:center;z-index:7;pointer-events:none;
+ background:rgba(0,0,90,.72);border:1px solid var(--cy);padding:6px 16px;min-width:220px;text-shadow:1px 1px 0 #000}
+#taghud .tt{font-size:13px;color:var(--cy);letter-spacing:.1em}
+#taghud .ti{font-size:16px;color:#fff;margin-top:2px}
+#taghud .ti b{color:#ff5555;font-weight:700}
+#taghud .tm{font-size:12px;color:var(--ye);margin-top:2px}
+#taghud.me{border-color:#ff5555;box-shadow:0 0 18px rgba(255,60,60,.6)}
+#tagbig{position:fixed;left:50%;top:32%;transform:translate(-50%,-50%);font-size:clamp(60px,14vw,150px);color:var(--ye);text-shadow:5px 5px 0 var(--bl);pointer-events:none;z-index:9}
+#tagres{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:15;pointer-events:none}
+#tagres .win{border:1px solid var(--line);background:rgba(8,12,20,.94);padding:18px 26px;min-width:min(420px,92vw)}
+#tagres table{width:100%;border-collapse:collapse;font-size:15px}
+#tagres td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.08)}
+#tagres tr.win1 td{color:var(--ye)}
+#tagres td.t{text-align:right;font-variant-numeric:tabular-nums}
+#flash{position:fixed;inset:0;pointer-events:none;z-index:12;opacity:0}
+#flash.go{animation:fl .6s ease-out}
+@keyframes fl{0%{opacity:1}100%{opacity:0}}
 #topinfo{position:fixed;right:14px;top:12px;font-size:11px;color:rgba(255,255,255,.8);text-shadow:1px 1px 0 #000;pointer-events:none;text-align:right}
 body.menu-on #topinfo{display:none}
 </style>
@@ -132,7 +152,7 @@ body.menu-on #topinfo{display:none}
 <div id="menu">
   <div class="box">
     <div class="logo">TEREP <span>30</span></div>
-    <div class="sub"><b>v1.7.1</b> · 2026.10.18</div>
+    <div class="sub"><b>v1.9.0</b> · 2026.10.18</div>
     <div id="menu-list"></div>
     <div id="map-info"></div>
     <div class="foot">C:\TEREP30&gt; <span class="cursor"></span><br><span class="keys">↑↓ választás · ←→ / Enter módosítás · F1 irányítás · gamepad is működik</span></div>
@@ -176,12 +196,19 @@ body.menu-on #topinfo{display:none}
 </div>
 <div id="rotate" class="hidden"><div class="phone"></div><b>Fordítsd el a telefont</b><span>fekvő helyzetben játszható</span></div>
 <div id="netinfo" class="hidden"></div>
+<div id="taghud" class="hidden"><div class="tt"></div><div class="ti"></div><div class="tm"></div></div>
+<div id="tagbig" class="hidden"></div>
+<div id="tagres" class="hidden"><div class="win"><h2>FOGÓCSKA · EREDMÉNY</h2><table id="tagres-t"></table><div class="nhint" id="tagres-n"></div></div></div>
+<div id="flash"></div>
 <div id="online" class="modal hidden">
   <div class="win" style="max-width:520px">
     <h2>ONLINE JÁTÉK · MAX 6 FŐ</h2>
     <div class="nrow"><label for="net-name">Neved</label><input id="net-name" maxlength="16" spellcheck="false" autocomplete="off"></div>
     <h3>SZOBA LÉTREHOZÁSA</h3>
     <div class="nhint">Te leszel a házigazda. Pálya: <span id="net-map"></span>. A kapott kódot küldd el a haverjaidnak.</div>
+    <div class="nrow"><label for="net-mode">Játékmód</label><select id="net-mode"><option value="free">Szabad játék</option><option value="tag">Fogócska</option></select>
+      <select id="net-len"><option value="120">2 perc</option><option value="180" selected>3 perc</option><option value="300">5 perc</option></select></div>
+    <div class="nhint" id="net-modehint">Fogócska: aki fogó, annak a kocsija hozzáérve átadja a szerepet. Az nyer, aki a legkevesebb ideig volt fogó.</div>
     <button class="nbtn" id="net-host">Szoba létrehozása</button>
     <h3>CSATLAKOZÁS</h3>
     <div class="nrow"><label for="net-code">Szoba kódja</label><input id="net-code" maxlength="5" spellcheck="false" autocomplete="off" placeholder="ABCDE"><button class="nbtn" id="net-join">Csatlakozás</button></div>
@@ -197,6 +224,8 @@ body.menu-on #topinfo{display:none}
     <h2>SZÜNET</h2>
     <div data-act="resume">Folytatás</div>
     <div data-act="restart">Újraindítás</div>
+    <div data-act="tagmode" class="hostonly">Játékmód: <span id="p-mode"></span></div>
+    <div data-act="taglen" class="hostonly">Kör hossza: <span id="p-len"></span></div>
     <div data-act="help">Irányítás</div>
     <div data-act="menu">Főmenü</div>
   </div>
@@ -250,6 +279,8 @@ body.menu-on #topinfo{display:none}
     </div>
     <h3>ONLINE (MAX 6 FŐ)</h3>
     <div style="font-size:12px;color:var(--dim);line-height:1.6">Főmenü → Online játék. Egyikőtök létrehozza a szobát, és elküldi az 5 betűs kódot; a többiek a kóddal csatlakoznak. A pályát a házigazda választja. Bárki bármikor beléphet és kiléphet; ha a házigazda kilép, a szoba megszűnik. Internet kell hozzá.</div>
+    <h3>FOGÓCSKA</h3>
+    <div style="font-size:12px;color:var(--dim);line-height:1.6">Online mód, 2–6 fő; a házigazda a szoba létrehozásakor (vagy a szünetmenüben) választja ki, a kör 2, 3 vagy 5 perces. A fogót piros fény és FOGÓ felirat jelzi; ha hozzáér valakihez, az lesz a fogó (az előzőt 3 mp-ig nem foghatja vissza). Az nyer, aki a legkevesebb ideig volt fogó. A fogó hideggáza másfélszer gyorsabban töltődik; az autók egymás közti ütközése itt fele annyi sérülést okoz.</div>
     <h3>MOBILON</h3>
     <div style="font-size:12px;color:var(--dim);line-height:1.6">Bal oldali kar: kormány (levegőben bukás és dőlés). Jobb oldalt: GÁZ, FÉK (tolatás), BOOST, UGRÁS (nyomva tartva lebeg), KÉZIFÉK. Fent: szívás, kamera, visszaállítás, teljes képernyő, szünet. Egy ujjal a képen húzva körbenézhetsz. Fekvő helyzetben játszd; iPhone-on a Megosztás → Főképernyőhöz adás után teljes képernyőn fut.</div>
     <h3>A RAKÉTÁRÓL</h3>
@@ -274,6 +305,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 // ============================================================
 
 const G = 9.81;
+// sérülés hangolása (egy helyen): a végső sérülés = DAMAGE_SCALE * (szerkezeti + horpadás)
+const DAMAGE_SCALE = 1.0;
+const DMG_STRUCT_K = 0.7;     // szerkezeti tag osztója: maxDeform * DMG_STRUCT_K (korábban 0.35)
+const DMG_DENT_W = 0.18;      // horpadások súlya (korábban 0.35)
+const DENT_DMG_MIN_IV = 8;    // ennél kisebb ütközési sebesség (m/s) csak látvány, nem sérülés
 
 function hashStr(s) {
   let h = 1779033703 ^ s.length;
@@ -822,7 +858,7 @@ class Car {
   damage() {
     let s = 0;
     for (let i = 0; i < this.nb; i++) s += Math.abs(this.rest[i] / this.orig[i] - 1);
-    return Math.min(1, s / this.nb / (this.spec.maxDeform * 0.35) + this.dentSum * 0.35);
+    return Math.min(1, DAMAGE_SCALE * (s / this.nb / (this.spec.maxDeform * DMG_STRUCT_K) + this.dentSum * DMG_DENT_W));
   }
 
   frame() {
@@ -987,7 +1023,7 @@ class Car {
         this._attitude(ct.pitch, ct.roll, FX, FY, FZ, level);
         this.tank -= s.attUse * dt; using = true; this.fxAtt = 1;
       }
-      if (!using) this.tank = Math.min(s.tank, this.tank + s.refill * dt);
+      if (!using) this.tank = Math.min(s.tank, this.tank + s.refill * (this.refillMul || 1) * dt);
       this.tank = Math.max(0, this.tank);
     }
 
@@ -1043,13 +1079,14 @@ class Car {
     if (this.near.trees.length || this.near.boxes.length) this._thin(dt);
   }
   // helyi horpadás (csak megjelenítés + sérülés)
-  addDent(lx, ly, lz, nx, ny, nz, iv) {
+  addDent(lx, ly, lz, nx, ny, nz, iv, dmgMul = 1) {
     const f = this.f, u = this.u, r = this.r;
-    const amt = Math.min(0.16, (iv - 5) * 0.011);
-    if (amt <= 0.003) return;
+    const amt = Math.min(0.16, (iv - 5) * 0.011);          // sérülésbe számított érték
+    const vis = Math.min(0.24, (iv - 5) * 0.017);          // megjelenített mélység
+    if (vis <= 0.003) return;
     if (this.dents.length > 40) this.dents.shift();
-    this.dents.push({ lx, ly, lz, nx: nx * f[0] + ny * f[1] + nz * f[2], ny: nx * u[0] + ny * u[1] + nz * u[2], nz: nx * r[0] + ny * r[1] + nz * r[2], amt });
-    this.dentSum = Math.min(3, this.dentSum + amt);
+    this.dents.push({ lx, ly, lz, nx: nx * f[0] + ny * f[1] + nz * f[2], ny: nx * u[0] + ny * u[1] + nz * u[2], nz: nx * r[0] + ny * r[1] + nz * r[2], amt, vis, iv });
+    if (iv >= DENT_DMG_MIN_IV) this.dentSum = Math.min(6, this.dentSum + amt * dmgMul);
   }
   // vékony akadályok (fák, oszlopok) a karosszéria dobozával
   _thin(dt) {
@@ -1119,6 +1156,8 @@ class Car {
     }
   }
   substepB(dt) {
+    if (this._carHitT > 0) this._carHitT--;
+    if (this._carDentT > 0) this._carDentT -= dt;
     for (let i = 0; i < NN; i++) {
       this.vx[i] = (this.x[i] - this.px[i]) / dt * 0.99985;
       this.vy[i] = (this.y[i] - this.py[i]) / dt * 0.99985;
@@ -1143,7 +1182,7 @@ class Car {
         const strain = (len - rest) / rest, as = Math.abs(strain);
         if (as > s.yieldStrain) {
           const o = this.orig[k];
-          rest += Math.sign(strain) * (as - s.yieldStrain) * rest * s.plastic;
+          rest += Math.sign(strain) * (as - s.yieldStrain) * rest * s.plastic * (this._carHitT > 0 ? (this.carDmgMul ?? 1) : 1);
           rest = Math.min(o * (1 + s.maxDeform * 0.5), Math.max(o * (1 - s.maxDeform), rest));
           this.rest[k] = rest;
         }
@@ -1247,6 +1286,7 @@ const _col = new THREE.Color();
 const hcol = (hex) => _col.setHex(hex);
 const hash2 = (i, j) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); };
 
+const DENT_MAX_OFF = 0.35;   // a horpadás csúcsonkénti legnagyobb elmozdulása (m)
 // egyszerű geometria-építő (nem indexelt, csúcsszínekkel)
 class GB {
   constructor() { this.p = []; this.c = []; }
@@ -1897,6 +1937,7 @@ class CarView {
     for (const sz of [-1, 1]) addHalo(2.12, 0.06, sz * 0.66, false, 1.1);
     for (const sz of [-0.75, 0, 0.75]) addHalo(-2.4, 0.2, sz, true, 0.8);
     this.headlight = headlight;
+    this.lightOut = [false, false]; this.bodyHex = cols.body;
 
     // fúvókák (hideggáz) és szívás fénye
     this.jets = [];
@@ -1953,24 +1994,85 @@ class CarView {
     if (!sk.off) sk.off = new Float32Array(nv * 3);
     const OF = sk.off;
     for (const d of dents) {
-      const R = 0.55 + d.amt * 3;
+      const va = d.vis || d.amt, R = 0.6 + va * 3.5;
       for (let v = 0; v < nv; v++) {
         const ex = L[v * 3] - d.lx, ey = L[v * 3 + 1] - d.ly, ez = L[v * 3 + 2] - d.lz;
         const dd = Math.sqrt(ex * ex + ey * ey + ez * ez);
         if (dd >= R) continue;
-        const w = (1 - dd / R); const k = w * w * d.amt;
+        const w = (1 - dd / R); const k = w * w * va;
         let ox = OF[v * 3] + d.nx * k, oy = OF[v * 3 + 1] + d.ny * k, oz = OF[v * 3 + 2] + d.nz * k;
         const ol = Math.hypot(ox, oy, oz);
-        if (ol > 0.2) { ox *= 0.2 / ol; oy *= 0.2 / ol; oz *= 0.2 / ol; }
+        if (ol > DENT_MAX_OFF) { ox *= DENT_MAX_OFF / ol; oy *= DENT_MAX_OFF / ol; oz *= DENT_MAX_OFF / ol; }
         OF[v * 3] = ox; OF[v * 3 + 1] = oy; OF[v * 3 + 2] = oz;
       }
     }
+    if (sk.normals) this._scuff(sk);
+  }
+  // lekopott festék: a horpadás mélységével arányosan sötétedik, fémszürke felé
+  _scuff(sk) {
+    const col = sk.geo.attributes.color; if (!col) return;
+    if (!sk.col0) sk.col0 = new Float32Array(col.array);
+    const C = col.array, C0 = sk.col0, OF = sk.off, n = C.length / 3;
+    const sr = 0.045, sg = 0.046, sb = 0.05;
+    for (let v = 0; v < n; v++) {
+      const m = Math.min(1, Math.hypot(OF[v * 3], OF[v * 3 + 1], OF[v * 3 + 2]) / 0.2) * 0.78;
+      // apró kopásminta, hogy ne egyszínű folt legyen
+      const g = m * (0.85 + 0.15 * Math.sin(v * 12.9898));
+      C[v * 3] = C0[v * 3] + (sr - C0[v * 3]) * g; C[v * 3 + 1] = C0[v * 3 + 1] + (sg - C0[v * 3 + 1]) * g; C[v * 3 + 2] = C0[v * 3 + 2] + (sb - C0[v * 3 + 2]) * g;
+    }
+    col.needsUpdate = true;
+  }
+  // nagy ütközés: szikra, törmelék; erős frontális ütés: kialszik az adott oldali lámpa
+  _dentFx(d) {
+    const car = this.car, v = [0, 0, 0];
+    car.toWorld(d.lx, d.ly, d.lz, v);
+    if (d.iv > 14 && typeof Game !== 'undefined' && Game.particles) {
+      const P = Game.particles;
+      for (let k = 0; k < 22; k++) P.emit(v[0], v[1], v[2], (Math.random() - 0.5) * 9, 2 + Math.random() * 5, (Math.random() - 0.5) * 9, k % 2 ? 0xffd27a : 0xfff3d0, 0.1 + Math.random() * 0.08, 0.35 + Math.random() * 0.4, 1, 0, 14);
+      if (Game.debris) Game.debris.burst(v, car.v, 3 + Math.floor(Math.random() * 4), this.bodyHex);
+    }
+    if (d.iv > 12 && d.lx > 1.5) {
+      const sides = Math.abs(d.lz) < 0.3 ? [0, 1] : [d.lz > 0 ? 1 : 0];
+      for (const k of sides) this.lampOut(k, true);
+    }
+  }
+  lampOut(k, out) {
+    if (this.lightOut[k] === out) return;
+    this.lightOut[k] = out;
+    const h = this.halos[k]; if (h) h.m.visible = !out;
+    if (this.headlight && this.headlight[k]) this.headlight[k].intensity = out ? 0 : 850;
+    const sk = this.skins[1], col = sk.geo.attributes.color, L = sk.local;
+    if (!sk.col0) sk.col0 = new Float32Array(col.array);
+    const sz = k ? 1 : -1;
+    for (let v = 0; v < L.length / 3; v++) {
+      if (L[v * 3] < 1.9 || Math.sign(L[v * 3 + 2]) !== sz) continue;
+      for (let c = 0; c < 3; c++) col.array[v * 3 + c] = out ? 0.012 : sk.col0[v * 3 + c];
+    }
+    col.needsUpdate = true;
   }
   update(dt) {
     const car = this.car, s = car.spec;
     const X = car.x, Y = car.y, Z = car.z;
-    if (this.repairs !== car.repairs) { for (const sk of this.skins) if (sk.off) sk.off.fill(0); this.repairs = car.repairs; }
-    if (car.dents.length) { for (const sk of this.skins) this._applyDents(sk, car.dents); car.dents.length = 0; }
+    if (this.repairs !== car.repairs) {
+      for (const sk of this.skins) if (sk.off) { sk.off.fill(0); if (sk.normals) this._scuff(sk); }
+      this.lampOut(0, false); this.lampOut(1, false);
+      this.repairs = car.repairs;
+    }
+    if (car.dents.length) {
+      for (const d of car.dents) this._dentFx(d);
+      for (const sk of this.skins) this._applyDents(sk, car.dents);
+      car.dents.length = 0;
+    }
+    // sérült motortér füstöl (online: a távoli autó elküldött sérülése alapján)
+    const dmg = car.netDamage !== undefined ? car.netDamage : car.damage();
+    if (dmg > 0.6 && dt > 0 && typeof Game !== 'undefined' && Game.particles && !car.wrecked) {
+      const dense = dmg > 0.85, v = this._v;
+      if (Math.random() < (dense ? 0.9 : 0.3)) {
+        car.toWorld(-1.3 + Math.random() * 0.6, 0.55, (Math.random() - 0.5) * 0.8, v);
+        Game.particles.emit(v[0], v[1], v[2], (Math.random() - 0.5) * 0.6 + car.v[0] * 0.3, 1.2 + Math.random(), (Math.random() - 0.5) * 0.6 + car.v[2] * 0.3,
+          dense ? 0x2a2b30 : 0x6a6c72, dense ? 0.9 + Math.random() * 0.6 : 0.5 + Math.random() * 0.3, dense ? 2.2 : 1.6, dense ? 0.5 : 0.25, 1.4, -0.4);
+      }
+    }
     const cf = car.f, cu = car.u, cr = car.r;
     for (const sk of this.skins) {
       const pa = sk.geo.attributes.position.array, I = sk.idx, Wt = sk.w, OF = sk.off;
@@ -2474,6 +2576,43 @@ class SkyEvents {
   }
 }
 
+// ------------------------------------------------------------
+// törmelék: kis low-poly darabok, amik leesnek, pattognak és 2 mp után eltűnnek
+class Debris {
+  constructor(scene, world) {
+    this.scene = scene; this.world = world; this.items = [];
+    this.geo = new THREE.TetrahedronGeometry(0.16, 0);
+    this.mats = new Map();
+  }
+  mat(hex) { let m = this.mats.get(hex); if (!m) { m = new THREE.MeshLambertMaterial({ color: hex, flatShading: true }); this.mats.set(hex, m); } return m; }
+  burst(p, v, n, hex) {
+    for (let k = 0; k < n; k++) {
+      if (this.items.length > 40) { const o = this.items.shift(); this.scene.remove(o.m); }
+      const m = new THREE.Mesh(this.geo, this.mat(k % 3 === 2 ? 0x1a1b1e : hex));
+      const s = 0.5 + Math.random() * 0.7; m.scale.set(s, s * (0.4 + Math.random() * 0.6), s);
+      m.position.set(p[0], p[1], p[2]); m.castShadow = true;
+      this.scene.add(m);
+      this.items.push({ m, v: [v[0] * 0.4 + (Math.random() - 0.5) * 8, 2 + Math.random() * 5, v[2] * 0.4 + (Math.random() - 0.5) * 8], w: [(Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18], life: 2, s });
+    }
+  }
+  update(dt) {
+    const W = this.world;
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const o = this.items[i];
+      o.life -= dt;
+      if (o.life <= 0) { this.scene.remove(o.m); this.items.splice(i, 1); continue; }
+      o.v[1] -= 9.81 * dt;
+      const p = o.m.position;
+      p.x += o.v[0] * dt; p.y += o.v[1] * dt; p.z += o.v[2] * dt;
+      const g = W.heightAt(p.x, p.z) + 0.06;
+      if (p.y < g) { p.y = g; o.v[1] = Math.abs(o.v[1]) * 0.3; o.v[0] *= 0.6; o.v[2] *= 0.6; o.w[0] *= 0.6; o.w[1] *= 0.6; o.w[2] *= 0.6; }
+      o.m.rotation.x += o.w[0] * dt; o.m.rotation.y += o.w[1] * dt; o.m.rotation.z += o.w[2] * dt;
+      if (o.life < 0.4) { const k = o.life / 0.4; o.m.scale.setScalar(o.s * k); }
+    }
+  }
+  clear() { for (const o of this.items) this.scene.remove(o.m); this.items = []; }
+}
+
 'use strict';
 // ============================================================
 //  TEREP 30 – Falcon 9 indítóállás a pálya szélén
@@ -2854,8 +2993,8 @@ const Net = {
 
   status(msg, err) { if (this.onStatus) this.onStatus(msg, err); },
 
-  async hostRoom(name) {
-    this.name = name;
+  async hostRoom(name, mode, len) {
+    this.name = name; this._mode = mode || this._mode || 'free'; this._len = len || this._len || 180;
     try { await loadPeerJS(); } catch (e) { this.status(e.message, true); return false; }
     this.code = netCode();
     this.status('Szoba létrehozása…');
@@ -2864,12 +3003,13 @@ const Net = {
       peer.on('open', () => {
         this.active = true; this.host = true; this.myId = 0;
         this.players.clear(); this.players.set(0, { id: 0, name });
+        Tag.hostSetup(this._mode, this._len);
         this.status('Szoba kész: ' + this.code);
         resolve(true);
       });
       peer.on('connection', conn => this._hostAccept(conn));
       peer.on('error', e => {
-        if (e.type === 'unavailable-id') { peer.destroy(); this.hostRoom(name).then(resolve); return; }
+        if (e.type === 'unavailable-id') { peer.destroy(); this.hostRoom(name, this._mode, this._len).then(resolve); return; }
         this.status('Hálózati hiba: ' + (e.type || e.message), true);
         if (!this.active) resolve(false);
       });
@@ -2893,9 +3033,10 @@ const Net = {
       this.players.set(id, { id, name, conn });
       this.conns.set(id, conn);
       const list = [...this.players.values()].map(p => ({ id: p.id, name: p.name }));
-      conn.send({ t: 'welcome', id, map: Game.cfg.map, seed: Game.cfg.seed, players: list, trees: this._downTrees() });
+      conn.send({ t: 'welcome', id, map: Game.cfg.map, seed: Game.cfg.seed, players: list, trees: this._downTrees(), g: Tag.snapshot() });
       this._broadcast({ t: 'join', id, name }, id);
       this.addRemote(id, name);
+      Tag.onJoin(id);
       UI.toast(0, name + ' csatlakozott');
       UI.netList();
       return;
@@ -2910,6 +3051,9 @@ const Net = {
       d.id = id;
       this._broadcast(d, id);
       this._recvEvent(d);
+    } else if (d.t === 'tq') {
+      // csak a saját autóját érintő érintést jelezhet
+      if (d.a === id || d.b === id) Tag.claim(d.a, d.b);
     }
   },
   _downTrees() { const out = []; Game.world.trees.forEach((t, i) => { if (t.down) out.push(i); }); return out; },
@@ -2920,6 +3064,7 @@ const Net = {
     this.players.delete(id); this.conns.delete(id);
     this.removeRemote(id);
     this._broadcast({ t: 'leave', id });
+    Tag.onLeave(id);
     UI.toast(0, name + ' kilépett');
     UI.netList();
   },
@@ -2949,6 +3094,7 @@ const Net = {
             this.players.clear();
             for (const p of d.players) this.players.set(p.id, p);
             this._welcome = d;
+            if (d.g) Tag.apply(d.g);
             resolve(true);
             return;
           }
@@ -2975,6 +3121,7 @@ const Net = {
   },
   _clientData(d) {
     if (d.t === 'b') { for (const s of d.s) this._recvState(s); }
+    else if (d.t === 'g') { Tag.apply(d); UI.netList(); }
     else if (d.t === 'e') this._recvEvent(d);
     else if (d.t === 'join') { this.players.set(d.id, { id: d.id, name: d.name }); this.addRemote(d.id, d.name); UI.toast(0, d.name + ' csatlakozott'); UI.netList(); }
     else if (d.t === 'leave') { const p = this.players.get(d.id); this.players.delete(d.id); this.removeRemote(d.id); if (p) UI.toast(0, p.name + ' kilépett'); UI.netList(); }
@@ -2990,6 +3137,7 @@ const Net = {
     try { if (this.peer) this.peer.destroy(); } catch (e) { }
     this.peer = null; this.hostConn = null; this.conns.clear(); this.players.clear();
     this.pendDents = []; this.pendTrees = [];
+    Tag.reset();
   },
 
   // ---- távoli autók
@@ -3020,7 +3168,7 @@ const Net = {
   },
   _recvEvent(d) {
     const r = this.remotes.get(d.id);
-    if (d.dn && r) for (const x of d.dn) r.car.dents.push({ lx: x[0], ly: x[1], lz: x[2], nx: x[3], ny: x[4], nz: x[5], amt: x[6] });
+    if (d.dn && r) for (const x of d.dn) r.car.dents.push({ lx: x[0], ly: x[1], lz: x[2], nx: x[3], ny: x[4], nz: x[5], amt: x[6], vis: x[7] || x[6], iv: x[8] || 0 });
     if (d.tr) for (const i of d.tr) { const t = Game.world.trees[i]; if (t && !t.down) { t.down = true; t.fallYaw = d.fy || 0; } }
     if (d.rp && r) { r.car.dents.length = 0; r.car.repairs++; }
     if (d.wk && r) remoteWreckFx(r.car);
@@ -3053,7 +3201,7 @@ const Net = {
     for (const r of this.remotes.values()) this._interp(r, now, dt);
   },
   // horpadás/fa események gyűjtése a saját autóból
-  noteDent(d) { this.pendDents.push([+d.lx.toFixed(2), +d.ly.toFixed(2), +d.lz.toFixed(2), +d.nx.toFixed(2), +d.ny.toFixed(2), +d.nz.toFixed(2), +d.amt.toFixed(3)]); },
+  noteDent(d) { this.pendDents.push([+d.lx.toFixed(2), +d.ly.toFixed(2), +d.lz.toFixed(2), +d.nx.toFixed(2), +d.ny.toFixed(2), +d.nz.toFixed(2), +d.amt.toFixed(3), +(d.vis || d.amt).toFixed(3), Math.round(d.iv || 0)]); },
   noteTree(t) { const i = Game.world.trees.indexOf(t); if (i >= 0) { this.pendTrees.push(i); this._treeYaw = t.fallYaw || 0; } },
   flushEvents() {
     if (!this.active) return;
@@ -3078,7 +3226,7 @@ const Net = {
       t: 's', q: this.seq, c: [+c[0].toFixed(3), +c[1].toFixed(3), +c[2].toFixed(3)], n, w,
       v: [+car.v[0].toFixed(2), +car.v[1].toFixed(2), +car.v[2].toFixed(2)],
       fx: [+car.fxBoost.toFixed(2), +Math.min(1.5, car.fxUp).toFixed(2), car.fxAtt ? 1 : 0, car.suctionOn ? 1 : 0, car.contacts],
-      wr: car.wrecked ? 1 : 0,
+      wr: car.wrecked ? 1 : 0, dm: +car.damage().toFixed(2),
     };
   },
   _interp(r, now, dt) {
@@ -3098,6 +3246,7 @@ const Net = {
     }
     car.wheels.forEach((wh, j) => { wh.t = L(a.w[j * 3], c.w[j * 3]) / 1000; wh.steer = L(a.w[j * 3 + 1], c.w[j * 3 + 1]) / 100; wh.spinRate = c.w[j * 3 + 2] / 10; });
     car.fxBoost = c.fx[0]; car.fxUp = c.fx[1]; car.fxAtt = c.fx[2]; car.suctionOn = !!c.fx[3]; car.contacts = c.fx[4];
+    r.wrecked = !!c.wr; car.wrecked = r.wrecked; car.netDamage = c.dm || 0;
     car.frame();
     r.view.update(dt);
     car.toWorld(0, 1.6, 0, Net._v);
@@ -3135,9 +3284,10 @@ function remoteWreckFx(car) {
   Sound.crash(0.6);
 }
 // egyoldalú ütközés: a saját autót eltolja a távoli autó dobozából
-function carPushFrom(P, Q) {
+function carPushFrom(P, Q, qid) {
   if (Math.abs(P.c[0] - Q.c[0]) > 8 || Math.abs(P.c[2] - Q.c[2]) > 8 || Math.abs(P.c[1] - Q.c[1]) > 8) return;
   const hx = Q.spec.len / 2, hy = Q.spec.h / 2 + 0.05, hz = Q.spec.wid / 2, r = P.spec.nodeR;
+  let best = 0, bi = -1, bn = null;
   for (let i = 0; i < 16; i++) {
     const dx = P.x[i] - Q.c[0], dy = P.y[i] - Q.c[1], dz = P.z[i] - Q.c[2];
     const lf = dx * Q.f[0] + dy * Q.f[1] + dz * Q.f[2], lu = dx * Q.u[0] + dy * Q.u[1] + dz * Q.u[2], lr = dx * Q.r[0] + dy * Q.r[1] + dz * Q.r[2];
@@ -3147,7 +3297,249 @@ function carPushFrom(P, Q) {
     if (pf < pu && pf < pr) { n = Q.f; pen = pf * Math.sign(lf); } else if (pu < pr) { n = Q.u; pen = pu * Math.sign(lu); } else { n = Q.r; pen = pr * Math.sign(lr); }
     pen = Math.max(-0.03, Math.min(0.03, pen));
     P.x[i] += n[0] * pen; P.y[i] += n[1] * pen; P.z[i] += n[2] * pen;
+    P._carHitT = 6; P.lastTouch = qid; P.lastTouchT = performance.now() / 1000;
+    // ütközési sebesség a másik autóhoz képest (horpadáshoz)
+    const sg = Math.sign(pen) || 1;
+    const iv = -((P.vx[i] - Q.v[0]) * n[0] + (P.vy[i] - Q.v[1]) * n[1] + (P.vz[i] - Q.v[2]) * n[2]) * sg;
+    if (iv > best) { best = iv; bi = i; bn = [n[0] * sg, n[1] * sg, n[2] * sg]; }
   }
+  if (best > 5 && bi >= 0 && !(P._carDentT > 0)) { P._carDentT = 0.25; P.addDent(P.lx[bi], P.ly[bi], P.lz[bi], bn[0], bn[1], bn[2], best, P.carDmgMul || 1); }
+}
+
+'use strict';
+// ============================================================
+//  TEREP 30 – Fogócska játékmód (online, 2–6 fő)
+//  Minden döntést (kör, fogó, átadás, pontok) a házigazda hoz, és 'g' üzenetben szétküldi.
+//  A kliensek csak megjelenítenek. Időket a hátralévő másodpercekkel küldjük, így az órák eltérése nem számít.
+// ============================================================
+const TAG_LENS = [120, 180, 300];
+const TAG_COUNT = 3, TAG_RES = 8, TAG_IMMUNE = 3, TAG_XFER_GAP = 0.6;
+const TAG_REFILL_MUL = 1.5;      // a fogónál a hideggáz ennyiszer gyorsabban töltődik
+const TAG_CAR_DMG_MUL = 0.5;     // fogócskában az autók egymás közti ütközése ennyiszeres sérülést okoz
+
+const Tag = {
+  mode: 'free', len: 180,
+  phase: 'off',          // off | wait | count | play | res
+  endAt: 0, it: -1, prevIt: -1, immuneUntil: 0, lastXfer: 0,
+  times: {}, results: null, syncT: 0, xfer: 0,
+  markers: new Map(),
+
+  now() { return performance.now() / 1000; },
+  on() { return Net.active && this.mode === 'tag'; },
+  name(id) { const p = Net.players.get(id); return p ? p.name : '?'; },
+
+  // ---- házigazda
+  hostSetup(mode, len) {
+    this.mode = mode === 'tag' ? 'tag' : 'free';
+    this.len = TAG_LENS.includes(len) ? len : 180;
+    this.times = {}; this.it = -1; this.prevIt = -1; this.results = null;
+    this.phase = this.mode === 'tag' ? 'wait' : 'off';
+    this.broadcast();
+  },
+  startRound() {
+    this.times = {};
+    for (const id of Net.players.keys()) this.times[id] = 0;
+    const ids = [...Net.players.keys()];
+    this.it = ids[Math.floor(Math.random() * ids.length)];
+    this.prevIt = -1; this.immuneUntil = 0; this.results = null;
+    this.phase = 'count'; this.endAt = this.now() + TAG_COUNT;
+    this.broadcast();
+  },
+  hostTick(dt) {
+    if (!Net.host || this.mode !== 'tag') return;
+    const now = this.now(), n = Net.players.size;
+    if (this.phase === 'off') this.phase = 'wait';
+    if (this.phase === 'wait') { if (n >= 2) this.startRound(); return; }
+    if (n < 2 && this.phase !== 'res') { this.phase = 'wait'; this.it = -1; this.broadcast(); return; }
+    if (this.phase === 'count') { if (now >= this.endAt) { this.phase = 'play'; this.endAt = now + this.len; this.lastXfer = now; this.broadcast(); } return; }
+    if (this.phase === 'play') {
+      if (!Net.players.has(this.it)) this.pickNewIt();
+      this.times[this.it] = (this.times[this.it] || 0) + dt;
+      // átadás: a fogó autója hozzáér valakihez (a házigazda nézete szerint)
+      if (now - this.lastXfer > TAG_XFER_GAP && !this.isWrecked(this.it)) {
+        const A = this.carOf(this.it);
+        if (A) for (const id of Net.players.keys()) {
+          if (id === this.it) continue;
+          const B = this.carOf(id);
+          if (B && carsTouch(A, B)) { this.claim(this.it, id); break; }
+        }
+      }
+      if (now >= this.endAt) this.endRound();
+      this.syncT -= dt;
+      if (this.syncT <= 0) { this.syncT = 1; this.broadcast(); }
+      return;
+    }
+    if (this.phase === 'res' && now >= this.endAt) { if (n >= 2) this.startRound(); else { this.phase = 'wait'; this.broadcast(); } }
+  },
+  // érintés-bejelentés: bármelyik gép jelezheti, a házigazda ellenőrzi és dönt
+  claim(a, b) {
+    if (!Net.host || this.phase !== 'play') return false;
+    const now = this.now();
+    if (a !== this.it || b === a || !Net.players.has(b)) return false;
+    if (now - this.lastXfer < TAG_XFER_GAP) return false;
+    if (this.isWrecked(a) || this.isWrecked(b)) return false;
+    if (b === this.prevIt && now < this.immuneUntil) return false;
+    const A = this.carOf(a), B = this.carOf(b);
+    if (!A || !B || Math.hypot(A.c[0] - B.c[0], A.c[2] - B.c[2]) > 40) return false;
+    this.transfer(b);
+    return true;
+  },
+  // a saját gépen észlelt érintés (pontosabb, mert a saját autó nem késik)
+  localCheck(dt) {
+    this._cq = (this._cq || 0) - dt;
+    if (!this.on() || this.phase !== 'play' || this._cq > 0) return;
+    const me = Game.cars[0]; if (!me || me.wrecked) return;
+    const now = this.now(), my = Net.myId;
+    const send = (a, b) => {
+      this._cq = 0.25;
+      if (Net.host) this.claim(a, b);
+      else if (Net.hostConn && Net.hostConn.open) { try { Net.hostConn.send({ t: 'tq', a, b }); } catch (e) { } }
+    };
+    const touched = (id, r) => (me.lastTouch === id && now - me.lastTouchT < 0.35) || carsTouch(me, r.car);
+    if (this.it === my) {
+      for (const [id, r] of Net.remotes) {
+        if (r.wrecked || (id === this.prevIt && now < this.immuneUntil)) continue;
+        if (touched(id, r)) { send(my, id); return; }
+      }
+    } else {
+      const r = Net.remotes.get(this.it);
+      if (r && !r.wrecked && !(my === this.prevIt && now < this.immuneUntil) && touched(this.it, r)) send(this.it, my);
+    }
+  },
+  transfer(id) {
+    const now = this.now();
+    this.prevIt = this.it; this.it = id; this.immuneUntil = now + TAG_IMMUNE; this.lastXfer = now;
+    this.xfer++;
+    this.broadcast();
+    this.onTransfer(this.prevIt, id);
+  },
+  pickNewIt() {
+    const ids = [...Net.players.keys()].filter(i => i !== this.it);
+    this.prevIt = -1;
+    this.it = ids.length ? ids[Math.floor(Math.random() * ids.length)] : -1;
+    this.xfer++;
+    this.broadcast();
+    if (this.it >= 0) this.onTransfer(-1, this.it);
+  },
+  endRound() {
+    const list = [...Net.players.keys()].map(id => ({ id, name: this.name(id), t: +(this.times[id] || 0).toFixed(1) })).sort((a, b) => a.t - b.t);
+    this.results = list;
+    this.phase = 'res'; this.endAt = this.now() + TAG_RES; this.it = -1;
+    this.broadcast();
+  },
+  onJoin(id) {
+    if (!Net.host || this.mode !== 'tag') return;
+    if (this.phase === 'play' || this.phase === 'count') {
+      const vals = Object.entries(this.times).filter(([k]) => +k !== id).map(([, v]) => v);
+      this.times[id] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    }
+    this.broadcast();
+  },
+  onLeave(id) {
+    if (!Net.host || this.mode !== 'tag') return;
+    delete this.times[id];
+    if (id === this.it && this.phase === 'play') this.pickNewIt();
+    else this.broadcast();
+  },
+  carOf(id) {
+    if (id === Net.myId) return Game.cars[0] || null;
+    const r = Net.remotes.get(id); return r ? r.car : null;
+  },
+  isWrecked(id) {
+    if (id === Net.myId) return !!(Game.cars[0] && Game.cars[0].wrecked);
+    const r = Net.remotes.get(id); return !!(r && r.wrecked);
+  },
+  snapshot() {
+    const now = this.now(), tm = {};
+    for (const k in this.times) tm[k] = +this.times[k].toFixed(1);
+    return { t: 'g', m: this.mode, l: this.len, ph: this.phase, rem: +Math.max(0, this.endAt - now).toFixed(2), it: this.it, pv: this.prevIt,
+      im: +Math.max(0, this.immuneUntil - now).toFixed(2), tm, res: this.results, x: this.xfer };
+  },
+  broadcast() { if (Net.active && Net.host) Net._broadcast(this.snapshot()); },
+
+  // ---- kliens
+  apply(d) {
+    const now = this.now(), oldIt = this.it, oldX = this.xfer;
+    this.mode = d.m; this.len = d.l; this.phase = d.ph; this.endAt = now + d.rem;
+    this.it = d.it; this.prevIt = d.pv; this.immuneUntil = now + d.im;
+    this.times = {}; for (const k in d.tm) this.times[k] = d.tm[k];
+    this.results = d.res; this.xfer = d.x;
+    if (d.x !== oldX && this.phase === 'play' && d.it >= 0 && d.it !== oldIt) this.onTransfer(oldIt, d.it);
+  },
+  reset() { this.mode = 'free'; this.phase = 'off'; this.it = -1; this.times = {}; this.results = null; this.clearMarkers(); },
+
+  // ---- megjelenítés
+  onTransfer(from, to) {
+    const me = Net.myId;
+    UI.toast(0, (to === me ? 'TE vagy a fogó!' : this.name(to) + ' lett a fogó'));
+    if (typeof Sound !== 'undefined') { Sound.blip(to === me ? 330 : 880, 0.09); setTimeout(() => Sound.blip(to === me ? 220 : 1320, 0.12), 110); }
+    if (to === me || from === me) UI.flash(to === me ? 'rgba(255,40,40,0.55)' : 'rgba(85,255,255,0.45)');
+    const c = this.carOf(to);
+    if (c && Game.particles) for (let k = 0; k < 30; k++) {
+      const a = Math.random() * 6.28;
+      Game.particles.emit(c.c[0], c.c[1] + 0.5, c.c[2], Math.cos(a) * 6, 2 + Math.random() * 4, Math.sin(a) * 6, 0xff4040, 0.3, 0.7, 1, 0.5, 4);
+    }
+  },
+  marker(id) {
+    let m = this.markers.get(id);
+    if (m) return m;
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(true), color: 0xff3030, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, fog: false, opacity: 0 }));
+    halo.scale.set(9, 9, 1);
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 80;
+    const x = cv.getContext('2d');
+    x.fillStyle = 'rgba(200,0,0,0.85)'; x.fillRect(20, 8, 216, 64);
+    x.strokeStyle = '#ffff55'; x.lineWidth = 5; x.strokeRect(20, 8, 216, 64);
+    x.fillStyle = '#ffffff'; x.font = 'bold 46px "Lucida Console", Consolas, monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText('FOGÓ', 128, 42);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, fog: false }));
+    label.scale.set(2.6, 0.8, 1);
+    Game.scene.add(halo); Game.scene.add(label);
+    m = { halo, label }; this.markers.set(id, m);
+    return m;
+  },
+  clearMarkers() {
+    for (const m of this.markers.values()) { Game.scene.remove(m.halo); Game.scene.remove(m.label); m.label.material.map.dispose(); }
+    this.markers.clear();
+  },
+  update(dt) {
+    if (!Net.active) { if (this.markers.size) this.clearMarkers(); UI.tagHud(null); return; }
+    if (Net.host) this.hostTick(dt);
+    this.localCheck(dt);
+    const t = this.now(), v = [0, 0, 0];
+    for (const [id, m] of this.markers) if (id !== this.it || this.mode !== 'tag' || this.phase !== 'play') { m.halo.visible = false; m.label.visible = false; }
+    if (this.on() && this.phase === 'play' && this.it >= 0) {
+      const c = this.carOf(this.it);
+      if (c) {
+        const m = this.marker(this.it);
+        m.halo.visible = m.label.visible = true;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 7);
+        c.toWorld(0, 0.2, 0, v); m.halo.position.set(v[0], v[1], v[2]);
+        m.halo.material.opacity = 0.25 + pulse * 0.4; const s = 7 + pulse * 3; m.halo.scale.set(s, s, 1);
+        c.toWorld(0, this.it === Net.myId ? 1.9 : 2.5, 0, v); m.label.position.set(v[0], v[1], v[2]);
+      }
+    }
+    // kiegyenlítés: a fogó gyorsabban tölti a hideggázt; autó–autó sérülés felezése
+    const me = Game.cars[0];
+    if (me) {
+      me.refillMul = this.on() && this.phase === 'play' && this.it === Net.myId ? TAG_REFILL_MUL : 1;
+      me.carDmgMul = this.on() ? TAG_CAR_DMG_MUL : 1;
+    }
+    UI.tagHud(this.on() ? this : null);
+  }
+};
+
+// két autó érintkezik-e (bármelyik csomópont a másik dobozában, 0,25 m ráhagyással)
+function carsTouch(A, B) {
+  if (Math.hypot(A.c[0] - B.c[0], A.c[1] - B.c[1], A.c[2] - B.c[2]) > 7) return false;
+  for (const [P, Q] of [[A, B], [B, A]]) {
+    const hx = Q.spec.len / 2 + 0.4, hy = Q.spec.h / 2 + 0.4, hz = Q.spec.wid / 2 + 0.4;
+    for (let i = 0; i < 16; i++) {
+      const dx = P.x[i] - Q.c[0], dy = P.y[i] - Q.c[1], dz = P.z[i] - Q.c[2];
+      if (Math.abs(dx * Q.f[0] + dy * Q.f[1] + dz * Q.f[2]) < hx && Math.abs(dx * Q.u[0] + dy * Q.u[1] + dz * Q.u[2]) < hy && Math.abs(dx * Q.r[0] + dy * Q.r[1] + dz * Q.r[2]) < hz) return true;
+    }
+  }
+  return false;
 }
 
 'use strict';
@@ -3195,6 +3587,7 @@ const KEYMAP = {
 const anyDown = (l) => l.some(c => Input.down(c));
 const anyHit = (l) => l.some(c => Input.hit(c));
 
+const esc = (t) => String(t).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 // ---------------- érintőképernyő ----------------
 const IS_TOUCH = (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
 const Touch = {
@@ -3428,6 +3821,7 @@ const Game = {
     this.sky.sun.position.copy(this.sunDir).multiplyScalar(1700);
     this.sky.sun.lookAt(0, 0, 0);
     this.particles = new Particles(sc);
+    this.debris = null;
     this.skyEvents = new SkyEvents(this.sky.sky);
     this.skyEvents.setPR(r.getPixelRatio());
     this.cams = [new THREE.PerspectiveCamera(62, 1, 0.1, 8000), new THREE.PerspectiveCamera(62, 1, 0.1, 8000)];
@@ -3478,6 +3872,8 @@ const Game = {
     if (this.worldView) this.worldView.dispose();
     this.world = new World({ mode: this.cfg.map, seed: this.cfg.seed });
     this.worldView = new WorldView(this.scene, this.world);
+    if (this.debris) this.debris.clear();
+    this.debris = new Debris(this.scene, this.world);
     this.worldKey = key;
     this.particles.clear();
   },
@@ -3514,6 +3910,7 @@ const Game = {
     if (n > 1) UI.toast(1, 'TEREP30.EXE betöltve');
   },
   clearCars() {
+    if (typeof Tag !== 'undefined') Tag.clearMarkers();
     if (this.flashes) this.flashes.forEach(f => f.intensity = 0);
     [0, 1].forEach(i => UI.wreck(i, false));
     for (const v of this.views) v.dispose();
@@ -3619,7 +4016,7 @@ const Game = {
     for (let k = 0; k < n; k++) {
       for (const c of cars) c.substepA(h);
       if (cars.length === 2) carCarCollide(cars[0], cars[1]);
-      if (Net.active) for (const r of Net.remotes.values()) carPushFrom(cars[0], r.car);
+      if (Net.active) for (const [rid, r] of Net.remotes) carPushFrom(cars[0], r.car, rid);
       if (k === 0 && this.worldView.launch) for (const c of cars) this.worldView.launch.blast(c, dt);
       for (const c of cars) c.substepB(h);
     }
@@ -3696,6 +4093,9 @@ const Game = {
       Net.update(dt, me);
     }
     if (this.state === 'play') {
+      Tag.update(dt);
+    }
+    if (this.state === 'play') {
       this.cars.forEach((c, i) => {
         c.frame();
         this.views[i].update(this.paused ? 0 : dt);
@@ -3705,6 +4105,7 @@ const Game = {
       });
     }
     this.skyEvents.update(dt);
+    if (this.debris) this.debris.update(dt);
     updateClouds(this.sky.clouds, dt);
     this.worldView.update(dt, this.cars, this.particles);
     this.render(dt);
@@ -3897,12 +4298,50 @@ const UI = {
     Game.paused = p; this.pause.classList.toggle('hidden', !p); this.psel = 0; this.drawPause();
     Sound.blip(p ? 440 : 660, 0.05);
   },
-  drawPause() { this.pauseItems.forEach((el, i) => el.classList.toggle('sel', i === this.psel)); },
+  drawPause() {
+    this.pauseItems = [...this.pause.querySelectorAll('[data-act]')].filter(el => el.offsetParent !== null || !el.classList.contains('hostonly'));
+    this.pauseItems.forEach((el, i) => { el.onclick = () => this.pauseAct(el.dataset.act); el.onmouseenter = () => { this.psel = i; this.drawPause(); }; });
+    if (this.psel >= this.pauseItems.length) this.psel = 0;
+    [...this.pause.querySelectorAll('[data-act]')].forEach(el => el.classList.remove('sel'));
+    this.pauseItems.forEach((el, i) => el.classList.toggle('sel', i === this.psel));
+    const pm = $('p-mode'), pl = $('p-len');
+    if (pm) pm.textContent = Tag.mode === 'tag' ? 'Fogócska' : 'Szabad játék';
+    if (pl) pl.textContent = Math.round(Tag.len / 60) + ' perc';
+  },
+  flash(col) { const f = $('flash'); f.style.background = col; f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); },
+  tagHud(T) {
+    const h = $('taghud'), big = $('tagbig'), res = $('tagres');
+    if (!T) { if (!h.classList.contains('hidden')) { h.classList.add('hidden'); big.classList.add('hidden'); res.classList.add('hidden'); } return; }
+    h.classList.remove('hidden');
+    const now = T.now(), rem = Math.max(0, T.endAt - now), fmt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+    const my = T.times[Net.myId] || 0;
+    let tt = 'FOGÓCSKA', ti = '', tm = '';
+    if (T.phase === 'wait' || T.phase === 'off') { tt = 'FOGÓCSKA'; ti = 'Várakozás játékosokra (min. 2 fő)'; }
+    else if (T.phase === 'count') { tt = 'FOGÓCSKA · KÖR INDUL'; ti = 'Fogó: <b>' + esc(T.name(T.it)) + '</b>'; }
+    else if (T.phase === 'play') { tt = 'FOGÓCSKA · ' + fmt(rem); ti = T.it === Net.myId ? '<b>TE VAGY A FOGÓ!</b>' : 'Fogó: <b>' + esc(T.name(T.it)) + '</b>'; tm = 'Fogóidőd: ' + my.toFixed(1) + ' mp'; }
+    else if (T.phase === 'res') { tt = 'FOGÓCSKA · KÖR VÉGE'; ti = 'Új kör ' + Math.ceil(rem) + ' mp múlva'; }
+    const key = tt + '|' + ti + '|' + tm;
+    if (h._k !== key) { h._k = key; h.querySelector('.tt').textContent = tt; h.querySelector('.ti').innerHTML = ti; h.querySelector('.tm').textContent = tm; }
+    h.classList.toggle('me', T.phase === 'play' && T.it === Net.myId);
+    if (T.phase === 'count') { big.classList.remove('hidden'); const n = String(Math.max(1, Math.ceil(rem))); if (big.textContent !== n) { big.textContent = n; Sound.blip(660, 0.08); } }
+    else if (!big.classList.contains('hidden')) { big.classList.add('hidden'); big.textContent = ''; if (T.phase === 'play') Sound.blip(1320, 0.18); }
+    if (T.phase === 'res' && T.results) {
+      res.classList.remove('hidden');
+      const rk = JSON.stringify(T.results);
+      if (res._k !== rk) {
+        res._k = rk;
+        $('tagres-t').innerHTML = T.results.map((r, i) => `<tr class="${i === 0 ? 'win1' : ''}"><td>${i + 1}.</td><td><i style="display:inline-block;width:9px;height:9px;margin-right:6px;background:${NET_COLORS_CSS[r.id % 6]}"></i>${esc(r.name)}${r.id === Net.myId ? ' (te)' : ''}${i === 0 ? ' · NYERT' : ''}</td><td class="t">${r.t.toFixed(1)} mp</td></tr>`).join('');
+      }
+      $('tagres-n').textContent = 'Fogóként töltött idő. Új kör ' + Math.ceil(rem) + ' mp múlva.';
+    } else res.classList.add('hidden');
+  },
   pauseAct(a) {
     if (a === 'resume') this.setPause(false);
     else if (a === 'restart') { this.setPause(false); if (Net.active) { const st = spawnPoint(Game.world, Net.myId); Game.cars[0].reset(st.x, st.z, st.yaw); } else Game.start(); }
     else if (a === 'menu') { this.setPause(false); Game.toMenu(); }
     else if (a === 'help') this.toggleHelp(true);
+    else if (a === 'tagmode' && Net.host) { Tag.hostSetup(Tag.mode === 'tag' ? 'free' : 'tag', Tag.len); this.drawPause(); this.netList(); }
+    else if (a === 'taglen' && Net.host) { const i = TAG_LENS.indexOf(Tag.len); Tag.hostSetup(Tag.mode, TAG_LENS[(i + 1) % TAG_LENS.length]); this.drawPause(); }
   },
   showMenu() {
     document.body.classList.remove('playing');
@@ -3945,7 +4384,9 @@ const UI = {
       Net.onStatus = (m, e) => this.netStatus(m, e);
       const name = () => { const v = ($('net-name').value || '').trim().slice(0, 16) || 'Pilóta'; try { localStorage.setItem('t30name', v); } catch (e) { } return v; };
       const busy = (b) => { $('net-host').disabled = b; $('net-join').disabled = b; };
-      $('net-host').onclick = async () => { Sound.init(); busy(true); const ok = await Net.hostRoom(name()); busy(false); if (ok) { P.classList.add('hidden'); Game.cfg.players = 1; Game.start(); } };
+      $('net-host').onclick = async () => { Sound.init(); busy(true); const ok = await Net.hostRoom(name(), $('net-mode').value, +$('net-len').value); busy(false); if (ok) { P.classList.add('hidden'); Game.cfg.players = 1; Game.start(); } };
+      const syncLen = () => { $('net-len').style.display = $('net-mode').value === 'tag' ? '' : 'none'; $('net-modehint').style.display = $('net-len').style.display; };
+      $('net-mode').onchange = syncLen; syncLen();
       $('net-join').onclick = async () => {
         Sound.init(); busy(true);
         const ok = await Net.joinRoom($('net-code').value, name()); busy(false);
@@ -3963,7 +4404,8 @@ const UI = {
     if (!Net.active) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const ps = [...Net.players.values()].sort((a, b) => a.id - b.id);
-    el.innerHTML = `<b>SZOBA ${Net.code}</b> · ${ps.length}/${NET_MAX}` + ps.map(p => `<div><i style="background:${NET_COLORS_CSS[p.id % 6]}"></i>${p.name.replace(/[<>&]/g, '')}${p.id === Net.myId ? ' (te)' : ''}${p.id === 0 ? ' ★' : ''}</div>`).join('');
+    document.body.classList.toggle('nethost', Net.host);
+    el.innerHTML = `<b>SZOBA ${Net.code}</b> · ${ps.length}/${NET_MAX}` + (Tag.mode === 'tag' ? ' · FOGÓCSKA' : '') + ps.map(p => `<div><i style="background:${NET_COLORS_CSS[p.id % 6]}"></i>${p.name.replace(/[<>&]/g, '')}${p.id === Net.myId ? ' (te)' : ''}${p.id === 0 ? ' ★' : ''}</div>`).join('');
   },
   toast(i, msg) {
     const h = this.huds[i]; if (!h) return;
