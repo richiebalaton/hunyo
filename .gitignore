@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.bak
+*.log
+.DS_Store
+Thumbs.db
+
+# nem a játék része (helyben marad)
+itch/
+github/
+Hunyo.html
+
+# Claude Code helyi beállítás
+.claude/settings.local.json
