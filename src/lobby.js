@@ -15,12 +15,14 @@ const Room = {
   mode: 'free', len: 180,
   phase: 'off',        // off (szabad játék) | lobby | game
   ready: new Set(), part: [], syncT: 0,
+  out: new Set(),      // a körből kiesettek (bújócska: víz alatti zárlat); a kör végéig nézők
 
   game() { return this.mode === 'tag' ? Tag : this.mode === 'hide' ? Hide : null; },
   lens() { return ROOM_LENS[this.mode] || []; },
   inGame(id) { return this.phase === 'game' && this.part.includes(id); },
   // néző: kör közben belépett, a kör végéig vár
-  spectator(id) { return Net.active && this.phase === 'game' && !this.part.includes(id); },
+  spectator(id) { return Net.active && this.phase === 'game' && (!this.part.includes(id) || this.out.has(id)); },
+  isOut(id) { return this.phase === 'game' && this.out.has(id); },
   amSpectator() { return this.spectator(Net.myId); },
 
   // ---- házigazda
@@ -30,7 +32,7 @@ const Room = {
     const L = ROOM_LENS[this.mode];
     this.len = L ? (L.includes(len) ? len : ROOM_DEF[this.mode]) : 180;
     this.phase = this.mode === 'free' ? 'off' : 'lobby';
-    this.ready.clear(); this.part = [];
+    this.ready.clear(); this.part = []; this.out.clear();
     this.broadcast();
   },
   setReady(id, v) {
@@ -51,7 +53,7 @@ const Room = {
   },
   startRound() {
     this.part = [...Net.players.keys()].sort((a, b) => a - b);
-    this.ready.clear();
+    this.ready.clear(); this.out.clear();
     this.phase = 'game';
     this.game().start(this.part);
     this.broadcast();
@@ -59,7 +61,7 @@ const Room = {
   toLobby() {
     const G = this.game(); if (G) G.stop();
     this.phase = this.mode === 'free' ? 'off' : 'lobby';
-    this.ready.clear(); this.part = [];
+    this.ready.clear(); this.part = []; this.out.clear();
     this.broadcast();
   },
   onJoin(id) { this.broadcast(); },
@@ -69,7 +71,7 @@ const Room = {
       const G = this.game();
       if (G) G.onLeave(id);
       this.part = this.part.filter(i => i !== id);
-      if (this.phase === 'game' && this.part.filter(i => Net.players.has(i)).length < 2) {
+      if (this.phase === 'game' && this.part.filter(i => Net.players.has(i) && !this.out.has(i)).length < 2) {
         UI.toast(0, 'Túl kevesen maradtatok · vissza a lobbiba');
         this.toLobby();
         return;
@@ -78,7 +80,7 @@ const Room = {
     this.broadcast();
   },
   snapshot() {
-    return { t: 'g', m: this.mode, l: this.len, ph: this.phase, rd: [...this.ready], pt: this.part,
+    return { t: 'g', m: this.mode, l: this.len, ph: this.phase, rd: [...this.ready], pt: this.part, ot: [...this.out],
       tg: this.mode === 'tag' ? Tag.snapshot() : undefined, hd: this.mode === 'hide' ? Hide.snapshot() : undefined };
   },
   broadcast() { if (Net.active && Net.host) { Net._broadcast(this.snapshot()); if (typeof UI !== 'undefined' && UI.netList) UI.netList(); } },
@@ -89,6 +91,8 @@ const Room = {
     if (oldMode !== d.m) { const G = this.game(); if (G) G.stop(); }
     this.mode = d.m; this.len = d.l; this.phase = d.ph;
     this.ready = new Set(d.rd || []); this.part = d.pt || [];
+    const oldOut = this.out; this.out = new Set(d.ot || []);
+    for (const id of this.out) if (!oldOut.has(id) && this.phase === 'game') Hide.onOut(id);
     if (d.tg) Tag.apply(d.tg); else if (this.mode !== 'tag' || this.phase !== 'game') Tag.stop();
     if (d.hd) Hide.apply(d.hd); else if (this.mode !== 'hide' || this.phase !== 'game') Hide.stop();
     if (oldPh === 'game' && this.phase !== 'game') this.onBackToLobby();
@@ -102,7 +106,7 @@ const Room = {
     else { if (v) this.ready.add(Net.myId); else this.ready.delete(Net.myId); Net.sendHost({ t: 'rdy', v: v ? 1 : 0 }); }
   },
   onBackToLobby() { if (typeof Hide !== 'undefined') Hide.restoreLocal(); },
-  reset() { this.mode = 'free'; this.len = 180; this.phase = 'off'; this.ready.clear(); this.part = []; Tag.reset(); Hide.reset(); },
+  reset() { this.mode = 'free'; this.len = 180; this.phase = 'off'; this.ready.clear(); this.part = []; this.out.clear(); Tag.reset(); Hide.reset(); },
 
   update(dt) {
     if (!Net.active) { UI.lobby(null); return; }

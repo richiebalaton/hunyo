@@ -10,6 +10,18 @@ const DAMAGE_SCALE = 1.0;
 const DMG_STRUCT_K = 0.7;     // szerkezeti tag osztója: maxDeform * DMG_STRUCT_K (korábban 0.35)
 const DMG_DENT_W = 0.18;      // horpadások súlya (korábban 0.35)
 const DENT_DMG_MIN_IV = 8;    // ennél kisebb ütközési sebesség (m/s) csak látvány, nem sérülés
+// sebességplafonok (m/s): a képességek eddig gyorsítanak, az eredő sebesség felső határa V_CAP.
+// A nyomva tartott lebegés (E) szándékosan nincs korlátozva; az ugrás-impulzus (tappelés) csak
+// spec.jumpDv-ig emeli a felfelé irányuló sebességet, így nem lehet vele gyorsabban emelkedni.
+const V_CAP = 100;            // eredő sebesség (360 km/h)
+const V_BOOST_CAP = 90;       // boost: előre eddig
+const V_SUCK_CAP = 20;        // szívás: a felület felé közeledés eddig
+const V_ABSURD = 250;         // ennél gyorsabb csomópont = szétesett szimuláció
+// víz
+const WATER_BUOY = 0.5;       // felhajtóerő G-ben (lassan merül)
+const WATER_SUCK = 1.2;       // víz-módban kényszerszívás a talaj felé (G)
+const WATER_VMAX = 6;         // a vízfenéken legfeljebb ennyivel lehet haladni
+const WATER_EXIT = 0.45;      // a víz-mód akkor szűnik meg, ha a középpont ennyivel a vízszint fölé ér
 
 function hashStr(s) {
   let h = 1779033703 ^ s.length;
@@ -109,6 +121,11 @@ class World {
       if (pm > 0) h = h + (this.pad.h - h) * pm;
       H[j * (N + 1) + i] = h;
     }
+    // láthatatlan pályahatár: oldalfal és plafon (csak az autókra hat)
+    let hMax = -Infinity;
+    for (let k = 0; k < H.length; k++) if (H[k] > hMax) hMax = H[k];
+    this.bound = this.half - 10;
+    this.ceilY = hMax + 50;
 
     this.ramps = []; this.boxes = []; this.spheres = []; this.trees = []; this.tvSpots = [];
     this.buildStructures();
@@ -138,7 +155,7 @@ class World {
     if (classic) { px = -205; pz = 40; }
     else {
       const away = Math.atan2(-this.zone.z, -this.zone.x);
-      let best = null, bs = -1;
+      let best = null, bs = -Infinity;
       for (let k = 0; k < 24; k++) {
         const a = (Math.hypot(this.zone.x, this.zone.z) > 20 ? away : rnd() * 6.28) + (rnd() - 0.5) * 1.6, r = 195 + rnd() * 15;
         const x = Math.cos(a) * r, z = Math.sin(a) * r;
@@ -545,7 +562,11 @@ class Car {
     this._p = [0, 0, 0]; this._thinList = []; this.dents = []; this.dentSum = 0; this.repairs = 0; this.treeHit = null;
     this.fxBoost = 0; this.fxUp = 0; this.fxAtt = 0; this.suckActive = 0;
     this.impact = 0; this.contacts = 0; this.airTime = 0; this.inWater = 0;
+    this.waterMode = false; this.submerged = 0; this.dmgExtra = 0;
     this.fwdSpeed = 0; this.speed = 0;
+    // utolsó ép állapot (fizika-robbanás esetén ide állunk vissza)
+    this.safeX = new Float64Array(NN); this.safeY = new Float64Array(NN); this.safeZ = new Float64Array(NN);
+    this.hasSafe = false; this.safeT = 0; this.spawnGuard = 0; this.home = null;
   }
   static idx(ix, iy, iz) { return ix * 4 + iy * 2 + iz; }
 
@@ -566,23 +587,51 @@ class Car {
       this.z[i] = this.pz[i] = z + lx * sa + lz * ca;
       this.vx[i] = this.vy[i] = this.vz[i] = 0;
     }
-    if (repair) { this.rest.set(this.orig); this.dents.length = 0; this.dentSum = 0; this.repairs++; }
+    if (repair) { this.rest.set(this.orig); this.dents.length = 0; this.dentSum = 0; this.dmgExtra = 0; this.repairs++; }
     this.tank = s.tank || 0;
     for (const w of this.wheels) { w.comp = w.prevComp = 0; w.contact = false; }
     this.steerCur = 0; this.airTime = 0;
+    this.waterMode = false; this.hasSafe = false; this.spawnGuard = 1.0;
+    this.home = { x, z, yaw };
     this.frame();
   }
-  resetHere() {
+  // kerékre állítás helyben (nem teleport): merev forgatás a középpont körül, a kerekek a lenti felületre
+  // kerülnek (víz alatt is a mederre); a deformáció, a sérülés és a tank megmarad. false, ha nincs alatta talaj.
+  uprightHere() {
+    const s = this.spec, W = this.world;
     this.frame();
-    let yaw = Math.atan2(this.f[2], this.f[0]);
-    if (Math.hypot(this.f[0], this.f[2]) < 0.2) yaw = Math.atan2(-this.u[2], -this.u[0]);
-    this.reset(this.c[0], this.c[2], yaw, true);
+    const c = this.c, f = this.f, u = this.u, r = this.r;
+    let yaw = Math.atan2(f[2], f[0]);
+    if (Math.hypot(f[0], f[2]) < 0.2) yaw = Math.atan2(-u[2], -u[0]);
+    const ca = Math.cos(yaw), sa = Math.sin(yaw);
+    W.gatherNear(c[0], c[2], 14, this.near);
+    let gh = -Infinity;
+    const hit = this.hit;
+    for (const [ox, oz] of [[0, 0], [2, 0.8], [2, -0.8], [-2, 0.8], [-2, -0.8]]) {
+      const wx = c[0] + ox * ca - oz * sa, wz = c[2] + ox * sa + oz * ca;
+      if (W.raycast(wx, c[1] + 0.5, wz, 0, -1, 0, 7, this.near, hit)) gh = Math.max(gh, c[1] + 0.5 - hit.t);
+    }
+    if (gh === -Infinity) return false;
+    const cy = gh + s.wheelR + s.susLen * 0.75 + 0.15 + (s.yb || 0) + s.h / 2;
+    const F = [ca, 0, sa], U = [0, 1, 0], R = [-sa, 0, ca];
+    for (let i = 0; i < NN; i++) {
+      const dx = this.x[i] - c[0], dy = this.y[i] - c[1], dz = this.z[i] - c[2];
+      const a = dx * f[0] + dy * f[1] + dz * f[2], b = dx * u[0] + dy * u[1] + dz * u[2], d = dx * r[0] + dy * r[1] + dz * r[2];
+      this.x[i] = this.px[i] = c[0] + F[0] * a + U[0] * b + R[0] * d;
+      this.y[i] = this.py[i] = cy + F[1] * a + U[1] * b + R[1] * d;
+      this.z[i] = this.pz[i] = c[2] + F[2] * a + U[2] * b + R[2] * d;
+      this.vx[i] = this.vy[i] = this.vz[i] = 0;
+    }
+    for (const w of this.wheels) { w.comp = w.prevComp = 0; w.contact = false; }
+    this.steerCur = 0; this.airTime = 0; this.hasSafe = false;
+    this.frame();
+    return true;
   }
   damage() {
     let s = 0;
     for (let i = 0; i < this.nb; i++) s += Math.abs(this.rest[i] / this.orig[i] - 1);
-    // dmgCap: bújócskában a bújók nem mennek totálkárba (max 90%)
-    return Math.min(this.dmgCap ?? 1, DAMAGE_SCALE * (s / this.nb / (this.spec.maxDeform * DMG_STRUCT_K) + this.dentSum * DMG_DENT_W));
+    // dmgCap: bújócskában a bújók nem mennek totálkárba (max 90%); dmgExtra: víz alatti zárlat
+    return Math.min(this.dmgCap ?? 1, DAMAGE_SCALE * (s / this.nb / (this.spec.maxDeform * DMG_STRUCT_K) + this.dentSum * DMG_DENT_W) + this.dmgExtra);
   }
 
   frame() {
@@ -629,7 +678,9 @@ class Car {
     this.steerCur += (target - this.steerCur) * Math.min(1, dt * 9);
     this.impact = 0;
     this._jump = false;
-    if (s.rocket && ct.upPressed) { ct.upPressed = false; if (this.tank >= s.jumpCost) { this._jump = true; this.tank -= s.jumpCost; this.jumpT = 1.0; } }
+    // ugrás: a tank-fogyás a ténylegesen hozzáadott sebességgel arányos (substepA); vízben nincs ugrás
+    if (s.rocket && ct.upPressed) { ct.upPressed = false; if (this.tank >= s.jumpCost && !this.waterMode) { this._jump = true; this.jumpT = 1.0; } }
+    if (this.spawnGuard > 0) this.spawnGuard -= dt;
     this.jumpT = Math.max(0, (this.jumpT || 0) - dt);
     this.fxBoost = 0; this.fxUp = 0; this.fxAtt = 0; this.suckActive = 0;
   }
@@ -638,6 +689,10 @@ class Car {
     const s = this.spec, W = this.world, ct = this.ctl, m = this.m;
     this.frame();
     const f = this.f, u = this.u;
+    // víz-mód: a középpont a vízszint alatt; csak akkor szűnik meg, ha az autó kijött a vízből
+    if (!this.waterMode) { if (this.c[1] < W.water) this.waterMode = true; }
+    else if (this.c[1] > W.water + WATER_EXIT) this.waterMode = false;
+    const wm = this.waterMode;
     const FX = this.fx, FY = this.fy, FZ = this.fz;
     FX.fill(0); FY.fill(0); FZ.fill(0);
 
@@ -654,7 +709,7 @@ class Car {
     let throttle = ct.throttle, brake = ct.brake;
     let reverse = false;
     if (brake > 0.05 && this.fwdSpeed < 1.0 && throttle < 0.05) { reverse = true; }
-    const vmaxEff = reverse ? 12 : s.vmax;
+    const vmaxEff = wm ? WATER_VMAX : reverse ? 12 : s.vmax;
     const fs = Math.abs(this.fwdSpeed);
     const curve = Math.max(0, 1 - Math.pow(fs / vmaxEff, 2));
     const driveTotal = (reverse ? -brake * 0.7 : throttle) * s.engineF * curve;
@@ -666,10 +721,14 @@ class Car {
       const inRange = got && hit.t < maxLen;
       w.contact = inRange;
       const n = hit.n;
-      if (s.rocket && this.suctionOn && got) {
-        const Fs = s.suction * this.M * G / 4 * (inRange ? 1 : 0.8);
+      const suckOn = s.rocket && this.suctionOn;
+      if ((suckOn || wm) && got) {
+        // a felület felé közeledés sebessége fölött gyengül (ne gyorsítson a szívás zuhanáskor)
+        const vin = -(this.v[0] * n[0] + this.v[1] * n[1] + this.v[2] * n[2]);
+        const kS = Math.max(0, Math.min(1, (V_SUCK_CAP - vin) / 5));
+        const Fs = Math.max(suckOn ? s.suction : 0, wm ? WATER_SUCK : 0) * this.M * G / 4 * (inRange ? 1 : 0.8) * kS;
         FX[i] -= n[0] * Fs; FY[i] -= n[1] * Fs; FZ[i] -= n[2] * Fs;
-        this.suckActive = 1;
+        if (suckOn) this.suckActive = 1;
       }
       if (!inRange) { w.comp = 0; w.prevComp = 0; w.t = maxLen; w.load = 0; continue; }
       contacts++;
@@ -723,17 +782,28 @@ class Car {
     for (const w of this.wheels) if (!w.contact) w.spinRate = (w.spinRate || 0) * 0.995 + (this.ctl.throttle * 40) * 0.005;
 
     // rakéta fúvókák
-    if (s.rocket) {
+    // vízben nincs repülés: ugrás, lebegés, boost és kézi helyzetszabályzás kikapcsolva
+    if (s.rocket && wm) this._jump = false;
+    if (s.rocket && !wm) {
       let using = false;
       if (this._jump) {
         this._jump = false;
-        for (let i = 0; i < NN; i++) { this.vx[i] += u[0] * s.jumpDv; this.vy[i] += u[1] * s.jumpDv; this.vz[i] += u[2] * s.jumpDv; }
-        this.fxUp = 1.5;
+        // az ugrás csak kb. spec.jumpDv-ig emeli a felfelé irányuló sebességet: tappeléssel sem lehet gyorsabban
+        // emelkedni, mint nyomva tartással (0,3 m/s holtsáv: talajról, nyugalomból a régivel azonos ugrás)
+        const vu = this.v[0] * u[0] + this.v[1] * u[1] + this.v[2] * u[2];
+        const dv = Math.max(0, s.jumpDv - Math.max(0, vu - 0.3));
+        if (dv > 0) {
+          for (let i = 0; i < NN; i++) { this.vx[i] += u[0] * dv; this.vy[i] += u[1] * dv; this.vz[i] += u[2] * dv; }
+          this.tank -= s.jumpCost * dv / s.jumpDv;
+          this.fxUp = 1.5;
+        }
       }
       if (ct.boost > 0.1 && this.tank > 0) {
-        const F = s.boostG * G * ct.boost;
+        // V_BOOST_CAP felett a boost már nem gyorsít előre
+        const kB = Math.max(0, Math.min(1, (V_BOOST_CAP - this.fwdSpeed) / 8));
+        const F = s.boostG * G * ct.boost * kB;
         for (let i = 0; i < NN; i++) { const q = F * MI[i]; FX[i] += f[0] * q; FY[i] += f[1] * q; FZ[i] += f[2] * q; }
-        this.tank -= s.boostUse * ct.boost * dt; using = true; this.fxBoost = ct.boost;
+        this.tank -= s.boostUse * ct.boost * kB * dt; using = true; this.fxBoost = ct.boost * kB;
       }
       if (ct.up > 0.1 && this.tank > 0) {
         const F = s.upG * G * ct.up;
@@ -749,17 +819,20 @@ class Car {
       }
       if (!using) this.tank = Math.min(s.tank, this.tank + s.refill * (this.refillMul || 1) * dt);
       this.tank = Math.max(0, this.tank);
-    }
+    } else if (s.rocket) this.tank = Math.min(s.tank, this.tank + s.refill * (this.refillMul || 1) * dt);
+    // vízben lágyan a kerekére fordul, amíg nem áll legalább 3 kerekén
+    if (wm && contacts < 3) this._attitude(0, 0, FX, FY, FZ, 'water');
 
     // integrálás
     const water = W.water;
-    let wet = 0;
+    let wet = 0, sub = 0;
     for (let i = 0; i < NN; i++) {
       const wi = this.wi[i];
       let ax = FX[i] * wi, ay = FY[i] * wi - G, az = FZ[i] * wi;
+      if (this.y[i] < water) sub++;
       if (this.y[i] < water + 0.3) {
         const depth = Math.min(1, (water + 0.3 - this.y[i]) / 0.8);
-        ay += G * 0.95 * depth;
+        ay += G * WATER_BUOY * depth;
         const k = 1.6 * depth;
         ax -= this.vx[i] * k; ay -= this.vy[i] * k * 1.5; az -= this.vz[i] * k;
         wet += depth;
@@ -769,6 +842,7 @@ class Car {
       this.x[i] += this.vx[i] * dt; this.y[i] += this.vy[i] * dt; this.z[i] += this.vz[i] * dt;
     }
     this.inWater = wet / NN;
+    this.submerged = sub / NN;     // 1 = teljesen víz alatt (a zárlat-óra ettől indul)
 
     // kényszerek (plasztikus alakváltozással)
     this._solve(true);
@@ -801,6 +875,30 @@ class Car {
     }
     if (dentBest > 5 && dentI >= 0) this.addDent(this.lx[dentI], this.ly[dentI], this.lz[dentI], dnx, dny, dnz, dentBest);
     if (this.near.trees.length || this.near.boxes.length) this._thin(dt);
+    this._bounds();
+  }
+  // láthatatlan pályahatár (oldalfal + plafon): az egész autó merev eltolása és a kifelé mutató
+  // sebesség nullázása; nincs alakváltozás, ütközés és sérülés
+  _bounds() {
+    const W = this.world, B = W.bound, top = W.ceilY;
+    let x0 = 0, x1 = 0, z0 = 0, z1 = 0, y1 = 0;
+    for (let i = 0; i < NN; i++) {
+      const x = this.x[i], z = this.z[i], y = this.y[i];
+      if (x > B + x1) x1 = x - B; else if (x < -B - x0) x0 = -B - x;
+      if (z > B + z1) z1 = z - B; else if (z < -B - z0) z0 = -B - z;
+      if (y > top + y1) y1 = y - top;
+    }
+    if (!(x0 || x1 || z0 || z1 || y1)) return;
+    const fix = (P, Q, d) => {
+      // d: a teljes eltolás; a d irányával ellentétes (kifelé mutató) sebesség-összetevő megszűnik
+      if (!d) return;
+      for (let i = 0; i < NN; i++) {
+        P[i] += d; Q[i] += d;
+        const v = P[i] - Q[i];
+        if (v * d < 0) Q[i] = P[i];
+      }
+    };
+    fix(this.x, this.px, x0 - x1); fix(this.z, this.pz, z0 - z1); fix(this.y, this.py, -y1);
   }
   // helyi horpadás (csak megjelenítés + sérülés)
   addDent(lx, ly, lz, nx, ny, nz, iv, dmgMul = 1) {
@@ -856,7 +954,8 @@ class Car {
         this.treeHit = o;
         continue;
       }
-      const lim = 0.02;
+      // fánál lágy tolás; oszlopnál a teljes behatolást feloldjuk, különben nagy sebességnél átbújna rajta
+      const lim = isTree ? 0.02 : 0.3;
       if (pf < pr) {
         const sg = Math.sign(lf), face = sg > 0 ? 3 : 0, nxt = sg > 0 ? 2 : 1, q = Math.min(pf, lim);
         for (let iy = 0; iy < 2; iy++) for (let iz = 0; iz < 2; iz++) {
@@ -867,8 +966,11 @@ class Car {
         this.impact = Math.max(this.impact, Math.abs(this.fwdSpeed));
       } else {
         const sg = Math.sign(lr), iz = sg > 0 ? 1 : 0, q = Math.min(pr, lim);
+        // oszlopnál a legközelebbi csomópontok teljes mértékben kitolódnak
+        let wMax = 1;
+        if (!isTree) { wMax = 0; for (let ix = 0; ix < 4; ix++) wMax = Math.max(wMax, 1 - Math.abs(this.xs[ix] - lf) / 1.6); }
         for (let ix = 0; ix < 4; ix++) {
-          const w = Math.max(0, 1 - Math.abs(this.xs[ix] - lf) / 1.6);
+          const w = Math.max(0, 1 - Math.abs(this.xs[ix] - lf) / 1.6) / (wMax > 0.05 ? wMax : 1);
           if (w <= 0) continue;
           for (let iy = 0; iy < 2; iy++) {
             const i = Car.idx(ix, iy, iz);
@@ -882,17 +984,54 @@ class Car {
   substepB(dt) {
     if (this._carHitT > 0) this._carHitT--;
     if (this._carDentT > 0) this._carDentT -= dt;
+    let cx = 0, cy = 0, cz = 0, mx = 0, my = 0, mz = 0, bad = false;
     for (let i = 0; i < NN; i++) {
-      this.vx[i] = (this.x[i] - this.px[i]) / dt * 0.99985;
-      this.vy[i] = (this.y[i] - this.py[i]) / dt * 0.99985;
-      this.vz[i] = (this.z[i] - this.pz[i]) / dt * 0.99985;
+      const vx = this.vx[i] = (this.x[i] - this.px[i]) / dt * 0.99985;
+      const vy = this.vy[i] = (this.y[i] - this.py[i]) / dt * 0.99985;
+      const vz = this.vz[i] = (this.z[i] - this.pz[i]) / dt * 0.99985;
+      cx += vx; cy += vy; cz += vz; mx += this.x[i]; my += this.y[i]; mz += this.z[i];
+      // NaN / végtelen / abszurd sebesség
+      if (!(vx * vx + vy * vy + vz * vz < V_ABSURD * V_ABSURD)) bad = true;
     }
-    // biztonság
-    if (!(this.x[0] === this.x[0]) || this.y[0] < -200) this.resetHere2();
+    mx /= NN; my /= NN; mz /= NN;
+    // szétesett test (csomópont messze a középponttól), vagy kiesett a pályáról
+    if (!bad) for (let i = 0; i < NN; i++) if (Math.abs(this.x[i] - mx) + Math.abs(this.y[i] - my) + Math.abs(this.z[i] - mz) > 12) { bad = true; break; }
+    if (bad || !(my > -200)) { this.recover(); return; }
+    // eredő sebesség plafonja (a tömegközéppont sebessége; a forgás megmarad)
+    cx /= NN; cy /= NN; cz /= NN;
+    const v2 = cx * cx + cy * cy + cz * cz;
+    if (v2 > V_CAP * V_CAP) {
+      const k = V_CAP / Math.sqrt(v2) - 1;
+      for (let i = 0; i < NN; i++) { this.vx[i] += cx * k; this.vy[i] += cy * k; this.vz[i] += cz * k; }
+    }
+    // utolsó ép állapot mentése 0,25 mp-enként
+    this.safeT -= dt;
+    if (this.safeT <= 0) {
+      this.safeT = 0.25;
+      this.safeX.set(this.x); this.safeY.set(this.y); this.safeZ.set(this.z); this.hasSafe = true;
+    }
   }
-  resetHere2() {
-    const st = this.world.starts[0];
-    this.reset(st.x, st.z, st.yaw);
+  // fizika-robbanás: vissza az utolsó ép állapotba, álló helyzetben (ha nincs, a kezdőpontra)
+  recover() {
+    let restOk = true;
+    for (let k = 0; k < this.nb; k++) if (!(this.rest[k] > 0 && this.rest[k] < 1e3)) { restOk = false; break; }
+    if (!restOk) { this.rest.set(this.orig); this.dents.length = 0; this.dentSum = 0; }
+    if (!(this.dmgExtra >= 0)) this.dmgExtra = 0;
+    if (!(this.tank >= 0)) this.tank = 0;
+    this.steerCur = 0; this.jumpT = 0; this.airTime = 0;
+    this.recovers = (this.recovers || 0) + 1;
+    if (this.hasSafe) {
+      this.x.set(this.safeX); this.y.set(this.safeY); this.z.set(this.safeZ);
+      this.px.set(this.safeX); this.py.set(this.safeY); this.pz.set(this.safeZ);
+      this.vx.fill(0); this.vy.fill(0); this.vz.fill(0);
+      for (const w of this.wheels) { w.comp = w.prevComp = 0; w.contact = false; }
+      this.hasSafe = false;   // ha innen is szétesik, a következő alkalommal a kezdőpontra
+      this.safeT = 0.25;
+      this.frame();
+    } else {
+      const st = this.home || this.world.starts[0];
+      this.reset(st.x, st.z, st.yaw, !restOk);
+    }
   }
   _solve(plastic) {
     const s = this.spec, X = this.x, Y = this.y, Z = this.z;
@@ -935,6 +1074,25 @@ class Car {
     const wr = w[0] * r[0] + w[1] * r[1] + w[2] * r[2];
     const wf = w[0] * f[0] + w[1] * f[1] + w[2] * f[2];
     let tr = -pitch * 3.8, tf = roll * 4.5;
+    if (level === 'water') {
+      // vízben: a felfelé vektor a függőleges felé fordul (fejjel lefelé a hossztengely körül), lágyan
+      const u = this.u;
+      let ax = -u[2], az = u[0];
+      const sn = Math.hypot(ax, az), ang = Math.acos(Math.max(-1, Math.min(1, u[1])));
+      if (sn < 0.15 && u[1] < 0) { ax = f[0]; az = f[2]; const l = Math.hypot(ax, az) || 1; ax /= l; az /= l; }
+      else if (sn > 1e-6) { ax /= sn; az /= sn; }
+      else { ax = az = 0; }
+      const k = Math.min(2.2, ang * 1.6);
+      tr = (ax * r[0] + az * r[2]) * k; tf = (ax * f[0] + az * f[2]) * k;
+      let ar = (tr - wr) * 5, af = (tf - wf) * 5;
+      ar = Math.max(-9, Math.min(9, ar)); af = Math.max(-9, Math.min(9, af));
+      const gx = r[0] * ar + f[0] * af, gy = r[1] * ar + f[1] * af, gz = r[2] * ar + f[2] * af;
+      for (let i = 0; i < NN; i++) {
+        const m = MI[i], rx = this.x[i] - c[0], ry = this.y[i] - c[1], rz = this.z[i] - c[2];
+        FX[i] += m * (gy * rz - gz * ry); FY[i] += m * (gz * rx - gx * rz); FZ[i] += m * (gx * ry - gy * rx);
+      }
+      return;
+    }
     if (level) {
       // u -> függőleges felé forgató tengely: u x (0,1,0)
       const ex = -this.u[2], ez = this.u[0];

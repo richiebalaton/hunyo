@@ -3,6 +3,12 @@
 //  HUNYÓ – irányítás, hang, menü, játékciklus
 // ============================================================
 
+const PHYS_H = 1 / 720;          // fizika lépésköze (s)
+const PHYS_MAX_DT = 1 / 20;      // képkockánként legfeljebb ennyi szimulált idő (dt-plafon)
+const BG_TICK = 0.05;            // háttérbe tett fülön ennyi időnként lép a játék (online)
+// víz alatti zárlat (teljes elmerüléstől mért idő)
+const DROWN_WARN = 7, DROWN_OUT = 15, DROWN_DMG = 0.05, DROWN_DMG_MAX = 0.95;
+
 // ---------------- bemenet ----------------
 const Input = {
   keys: new Set(), pressed: new Set(), pads: [], padPrev: [],
@@ -364,6 +370,7 @@ const Game = {
     this.resize();
     this.last = performance.now();
     this.menuT = 0;
+    this.startBgTicker();
     requestAnimationFrame(t => this.loop(t));
   },
   worldCfgKey() { return this.cfg.map === 'classic' ? 'classic' : 'gen:' + this.cfg.seed; },
@@ -394,7 +401,7 @@ const Game = {
     for (let i = 0; i < n; i++) {
       const spec = SPECS[this.cfg.car[i]];
       const car = new Car(spec, this.world);
-      const st = online ? spawnPoint(this.world, Net.myId) : this.world.starts[n === 1 ? 0 : i];
+      const st = this.spawnFor(i);
       car.reset(st.x, st.z, st.yaw);
       this.cars.push(car);
       this.headlights[i].forEach(L => L.intensity = 850);
@@ -415,7 +422,7 @@ const Game = {
     if (typeof Hide !== 'undefined') Hide.clearSprites();
     this.freeze = false;
     if (this.flashes) this.flashes.forEach(f => f.intensity = 0);
-    [0, 1].forEach(i => UI.wreck(i, false));
+    [0, 1].forEach(i => { UI.wreck(i, false); UI.drown(i, false); });
     for (const v of this.views) v.dispose();
     Sound.killVoices();
     this.cars = []; this.views = []; this.ctls = []; this.voices = [];
@@ -466,12 +473,61 @@ const Game = {
     if (car.wreckT <= 0) {
       car.wrecked = false;
       // vissza a kezdőpontra
-      const st = Net.active ? spawnPoint(this.world, Net.myId) : this.world.starts[this.cars.length === 1 ? 0 : i];
+      const st = this.spawnFor(i);
       car.reset(st.x, st.z, st.yaw);
       this.ctls[i].snap = true;
       car.suctionOn = true;
       UI.wreck(i, false);
       UI.toast(i, 'Új autó a startnál · totálkár: ' + car.wrecks);
+    }
+  },
+  // kezdőpont az i. helyi autónak (online: a saját azonosító sávja); a foglalt helyet elkerüli
+  spawnFor(i) {
+    const avoid = this.cars.filter((c, k) => k !== i);
+    if (Net.active) for (const [id, r] of Net.remotes) if (!Room.spectator(id)) avoid.push(r.car);
+    return spawnPoint(this.world, Net.active ? Net.myId : i, avoid);
+  },
+  // mi történik 15 mp teljes elmerülés után: 'none' (fogócska), 'out' (bújócska-kör: kiesés), 'restart'
+  waterRule(i) {
+    if (!Net.active) return 'restart';
+    if (Room.mode === 'tag') return 'none';
+    if (Room.amSpectator()) return 'none';
+    if (Room.mode === 'hide' && Room.phase === 'game' && Hide.active(Net.myId) && (Hide.phase === 'hide' || Hide.phase === 'seek')) return 'out';
+    if (Room.mode === 'hide' && Room.phase === 'game') return 'none';   // visszaszámlálás / eredménytábla
+    return 'restart';
+  },
+  // víz alatti zárlat: az óra a teljes elmerüléstől indul; 7 mp-től figyelmeztetés és fogy az életerő
+  updateWater(i, dt) {
+    const car = this.cars[i];
+    const rule = this.waterRule(i);
+    if (car.wrecked || rule === 'none' || car.submerged < 1) {
+      car.drownT = 0; car._outSent = 0; UI.drown(i, false);
+      return;
+    }
+    const prev = car.drownT || 0;
+    car.drownT = prev + dt;
+    const t = car.drownT;
+    if (t >= DROWN_WARN) {
+      if (prev < DROWN_WARN) { UI.toast(i, 'Víz alatti zárlat közeleg! Gyere ki a vízből!'); }
+      if (Math.floor(t) !== Math.floor(prev)) Sound.blip(t > DROWN_OUT - 3 ? 1100 : 820, 0.07);
+      if (car.damage() < DROWN_DMG_MAX) car.dmgExtra += DROWN_DMG * dt;
+      UI.drown(i, true, Math.max(0, Math.ceil(DROWN_OUT - t)), rule === 'out' ? 'kiesés' : 'újraindulás');
+    }
+    if (t < DROWN_OUT) return;
+    if (rule === 'restart') {
+      const st = this.spawnFor(i);
+      car.reset(st.x, st.z, st.yaw);
+      car.drownT = 0; car.suctionOn = true;
+      this.ctls[i].snap = true;
+      UI.drown(i, false);
+      Sound.zap();
+      UI.toast(i, 'Zárlat a víz alatt · új autó a startnál');
+    } else if (rule === 'out' && i === 0) {
+      // a házigazda dönt; amíg nem erősíti meg, másodpercenként újra jelezzük
+      if (!(car._outSent > 0)) {
+        car._outSent = 1;
+        if (Net.host) Hide.eliminate(Net.myId); else Net.sendHost({ t: 'out' });
+      } else car._outSent -= dt;
     }
   },
   readControls(i, dt) {
@@ -521,19 +577,38 @@ const Game = {
     if (anyHit(K.suck) || Input.padHit(pi, 4) || T.take('suckHit')) {
       if (car.spec.rocket) { car.suctionOn = !car.suctionOn; UI.toast(i, car.suctionOn ? 'Szívás: BE' : 'Szívás: KI'); Sound.blip(car.suctionOn ? 880 : 440); }
     }
-    if (anyHit(K.reset) || Input.padHit(pi, 8) || T.take('resetHit')) { car.resetHere(); UI.toast(i, 'Visszaállítva'); }
+    if (anyHit(K.reset) || Input.padHit(pi, 8) || T.take('resetHit')) this.uprightCar(i);
     if (anyHit(K.cam) || Input.padHit(pi, 3) || T.take('camHit')) { UI.toast(i, 'Kamera: ' + this.ctls[i].next()); }
+  },
+  // fix lépésköz (1/720 s) akkumulátorral; képkockánként legfeljebb PHYS_MAX_DT szimulált idő
+  // futó fogócska-/bújócska-körben részt vesz-e a saját autó (ilyenkor nincs menekülő eszköz)
+  inRound() { return Net.active && Room.phase === 'game' && (Room.mode === 'tag' || Room.mode === 'hide') && Room.part.includes(Net.myId) && !Room.amSpectator(); },
+  // visszaállítás: kerékre állítás helyben, csak (majdnem) álló autóval; körben várakozási idővel
+  uprightCar(i) {
+    const car = this.cars[i], now = performance.now() / 1000;
+    if (car.speed > 3) { UI.toast(i, 'Kerékre állítás csak álló autóval'); return; }
+    const cd = this.inRound() ? 10 : 1, left = (car._uprightAt || -1e9) + cd - now;
+    if (left > 0) { UI.toast(i, 'Kerékre állítás ' + Math.ceil(left) + ' mp múlva'); return; }
+    if (!car.uprightHere()) { UI.toast(i, 'Nincs talaj az autó alatt'); return; }
+    car._uprightAt = now;
+    UI.toast(i, 'Kerékre állítva');
   },
   physics(dt) {
     const cars = this.cars;
-    for (const c of cars) c.beginFrame(dt);
-    const n = Math.min(40, Math.ceil(dt / (1 / 720))), h = dt / n;
+    this._acc = Math.min((this._acc || 0) + dt, PHYS_MAX_DT);
+    const n = Math.floor(this._acc / PHYS_H + 1e-6);
+    if (n <= 0) return;
+    this._acc = Math.max(0, this._acc - n * PHYS_H);
+    const sim = n * PHYS_H;
+    for (const c of cars) c.beginFrame(sim);
+    const me = cars[0];
     for (let k = 0; k < n; k++) {
-      for (const c of cars) c.substepA(h);
+      for (const c of cars) c.substepA(PHYS_H);
       if (cars.length === 2) carCarCollide(cars[0], cars[1]);
-      if (Net.active && !Room.amSpectator()) for (const [rid, r] of Net.remotes) if (!Room.spectator(rid)) carPushFrom(cars[0], r.car, rid);
-      if (k === 0 && this.worldView.launch) for (const c of cars) this.worldView.launch.blast(c, dt);
-      for (const c of cars) c.substepB(h);
+      // a frissen visszaállított autó és a teleportáló távoli autó rövid ideig nem ütközik (elavult szellem)
+      if (Net.active && !Room.amSpectator() && !(me.spawnGuard > 0)) for (const [rid, r] of Net.remotes) if (!Room.spectator(rid) && !(r.guard > 0)) carPushFrom(me, r.car, rid);
+      if (k === 0 && this.worldView.launch) for (const c of cars) this.worldView.launch.blast(c, sim);
+      for (const c of cars) c.substepB(PHYS_H);
     }
   },
   effects(dt) {
@@ -545,6 +620,7 @@ const Game = {
         const sp = car.speed;
         if (sp < 2.5) continue;
         let hex = null, rate = 0;
+        if (w.hy < W.water - 0.6) continue;   // a mederben nincs fröccs
         if (w.hy < W.water + 0.1) { hex = 0xe8f4ff; rate = sp * 0.5; }
         else if (w.surf === SURF.GRASS) { hex = 0x9b8a62; rate = (sp - 6) * 0.06 + w.slip * 3; }
         else if (w.surf === SURF.SAND) { hex = 0xd8c48f; rate = sp * 0.18 + w.slip * 4; }
@@ -589,15 +665,34 @@ const Game = {
   },
   loop(now) {
     requestAnimationFrame(t => this.loop(t));
-    let dt = (now - this.last) / 1000; this.last = now;
-    if (!(dt > 0)) dt = 1 / 60;
-    dt = Math.min(dt, 1 / 20);
+    this._rafAt = performance.now();
+    this.step(now, true);
+  },
+  // háttérbe tett fülön a requestAnimationFrame leáll; online módban egy Worker-órajel lépteti tovább
+  // a játékot (rajzolás nélkül), hogy a házigazda logikája (megtalálás, kör vége, lobbi) és a hálózat fusson
+  startBgTicker() {
+    const tick = () => {
+      const now = performance.now();
+      if (this.state === 'play' && Net.active && now - (this._rafAt || 0) > 300) this.step(now, false);
+    };
+    try {
+      const url = URL.createObjectURL(new Blob(['setInterval(function(){postMessage(0)},' + Math.round(BG_TICK * 1000) + ')'], { type: 'text/javascript' }));
+      this._bgWorker = new Worker(url);
+      this._bgWorker.onmessage = tick;
+    } catch (e) { setInterval(tick, BG_TICK * 1000); }
+  },
+  step(now, draw) {
+    let dtReal = (now - this.last) / 1000; this.last = now;
+    if (!(dtReal > 0)) dtReal = 1 / 60;
+    dtReal = Math.min(dtReal, 1);           // játéklogika (órák, fogóidő): valós idő, max. 1 mp
+    const dt = Math.min(dtReal, PHYS_MAX_DT);  // szimuláció
     Input.poll();
     UI.frame(dt);
     // online módban a szünet nem állítja meg a világot
     if (this.state === 'play' && (!this.paused || Net.active)) {
-      for (let i = 0; i < this.cars.length; i++) { if (this.paused) Object.assign(this.cars[i].ctl, { throttle: 0, brake: 0.3, steer: 0, boost: 0, up: 0, pitch: 0, roll: 0 }); else this.readControls(i, dt); }
-      for (let i = 0; i < this.cars.length; i++) this.updateWreck(i, dt);
+      // szünetben / háttérben az autó áll (kézifék; a fék álló autónál tolatás volna)
+      for (let i = 0; i < this.cars.length; i++) { if (this.paused || !draw) Object.assign(this.cars[i].ctl, { throttle: 0, brake: 0, steer: 0, handbrake: 1, boost: 0, up: 0, upPressed: false, pitch: 0, roll: 0 }); else this.readControls(i, dt); }
+      for (let i = 0; i < this.cars.length; i++) { this.updateWreck(i, dt); this.updateWater(i, dtReal); }
       this.physics(dt);
       this.effects(dt);
     }
@@ -605,12 +700,12 @@ const Game = {
       const me = this.cars[0];
       if (me) for (const d of me.dents) Net.noteDent(d);
       Net.flushEvents();
-      Net.update(dt, me);
+      Net.update(dtReal, me);
     }
     if (this.state === 'play') {
-      Room.update(dt);
-      Tag.update(dt);
-      Hide.update(dt);
+      Room.update(dtReal);
+      Tag.update(dtReal);
+      Hide.update(dtReal);
       // kész jelzés a lobbiban: Enter / gamepad D-pad fel / a lobbi gombja
       if (Net.active && Room.phase === 'lobby' && !this.paused && (Input.hit('Enter') || Input.hit('NumpadEnter') || Input.padHit(0, 12))) Room.toggleReady();
     }
@@ -626,18 +721,20 @@ const Game = {
       });
       if (Net.active) Sound.setListener(this.cams[0]);
     }
-    this.skyEvents.update(dt);
-    if (this.debris) this.debris.update(dt);
-    updateClouds(this.sky.clouds, dt);
-    this.worldView.update(dt, this.cars, this.particles);
-    this.render(dt);
+    if (draw) {
+      this.skyEvents.update(dt);
+      if (this.debris) this.debris.update(dt);
+      updateClouds(this.sky.clouds, dt);
+      this.worldView.update(dt, this.cars, this.particles);
+      this.render(dt);
+    }
     Input.endFrame();
   },
   // a kamera célpontja: saját autó, vagy nézőként egy játékban lévő játékos autója
   camTarget() {
     const me = this.cars[0];
     if (!Net.active || !Room.amSpectator()) return me;
-    const ids = Room.part.filter(id => Net.remotes.has(id));
+    const ids = Room.part.filter(id => Net.remotes.has(id) && !Room.spectator(id));
     if (!ids.length) return me;
     const id = ids[(this.specIdx || 0) % ids.length];
     this.specName = Net.remotes.get(id).name;
@@ -883,7 +980,8 @@ const UI = {
       const mine = R.ready.has(me);
       btn = `<div class="lbtn${mine ? ' on' : ''}" id="lobby-rdy">${mine ? 'KÉSZ ✓ (visszavonás)' : 'KÉSZ VAGYOK'}</div><div class="lk">${IS_TOUCH ? '' : 'Enter · gamepad: D-pad fel'}</div>`;
     } else {
-      body = `<div class="lh">Kör folyamatban. A kör végén beszállhatsz.<br>Nézőként követed: <b>${esc(Game.specName || '?')}</b></div><div class="lk">${IS_TOUCH ? 'KAMERA gomb: másik játékos' : 'C: másik játékos'}</div>`;
+      const head = R.isOut(me) ? 'Kiestél: zárlat a víz alatt. Várd meg a kör végét.' : 'Kör folyamatban. A kör végén beszállhatsz.';
+      body = `<div class="lh">${head}<br>Nézőként követed: <b>${esc(Game.specName || '?')}</b></div><div class="lk">${IS_TOUCH ? 'KAMERA gomb: másik játékos' : 'C: másik játékos'}</div>`;
     }
     const head = `LOBBI · ${ROOM_MODE_NAME[R.mode].toUpperCase()} · ${Math.round(R.len / 60)} PERC`;
     const key = head + body + btn;
@@ -901,7 +999,7 @@ const UI = {
       return;
     }
     h.classList.remove('hidden');
-    const my = Net.myId, part = Room.part.includes(my), seeker = H.isSeeker(my);
+    const my = Net.myId, part = H.active(my), seeker = H.isSeeker(my);
     const rem = Math.max(0, H.endAt - H.now()), fmt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
     const left = H.hidersLeft();
     let tt = 'BÚJÓCSKA', ti = '', tm = '';
@@ -929,14 +1027,22 @@ const UI = {
       if (res._k !== rk) {
         res._k = rk;
         res.querySelector('h2').textContent = 'BÚJÓCSKA · EREDMÉNY';
-        $('tagres-t').innerHTML = H.results.map((r, i) => `<tr class="${r.w ? 'win1' : ''}"><td>${i + 1}.</td><td><i style="display:inline-block;width:9px;height:9px;margin-right:6px;background:${NET_COLORS_CSS[r.id % 6]}"></i>${esc(r.name)}${r.id === my ? ' (te)' : ''}${r.w ? ' · NYERT' : ''}</td><td class="t">${r.s === 'k' ? 'kereső' : r.s === 'a' ? 'túlélte' : r.t.toFixed(1) + ' mp'}</td></tr>`).join('');
+        $('tagres-t').innerHTML = H.results.map((r, i) => `<tr class="${r.w ? 'win1' : ''}"><td>${i + 1}.</td><td><i style="display:inline-block;width:9px;height:9px;margin-right:6px;background:${NET_COLORS_CSS[r.id % 6]}"></i>${esc(r.name)}${r.id === my ? ' (te)' : ''}${r.w ? ' · NYERT' : ''}</td><td class="t">${r.s === 'k' ? 'kereső' : r.s === 'a' ? 'túlélte' : r.s === 'x' ? 'zárlat · ' + r.t.toFixed(1) + ' mp' : r.t.toFixed(1) + ' mp'}${r.o ? ' · zárlat' : ''}</td></tr>`).join('');
       }
-      $('tagres-n').textContent = (H.why === 'all' ? 'Mindenkit megtaláltak; az utolsó megtalált nyert.' : 'Lejárt az idő; minden túlélő nyert.') + ' Túlélési idő a keresés kezdetétől. Lobbi ' + Math.ceil(rem) + ' mp múlva.';
+      const why = { all: 'Mindenkit megtaláltak; az utolsó megtalált nyert.', time: 'Lejárt az idő; minden túlélő nyert.',
+        drown: 'Az utolsó bújók is vízbe fulladtak (zárlat); a keresők nyertek.', nosk: 'Nem maradt kereső; a túlélők nyertek.' }[H.why] || '';
+      $('tagres-n').textContent = why + ' Túlélési idő a keresés kezdetétől. Lobbi ' + Math.ceil(rem) + ' mp múlva.';
     } else if (this._hideRes) { res.classList.add('hidden'); this._hideRes = false; }
   },
   pauseAct(a) {
     if (a === 'resume') this.setPause(false);
-    else if (a === 'restart') { this.setPause(false); if (Net.active) { const st = spawnPoint(Game.world, Net.myId); Game.cars[0].reset(st.x, st.z, st.yaw); } else Game.start(); }
+    else if (a === 'restart') {
+      this.setPause(false);
+      // futó fogócska-/bújócska-körben nem lehet a startra menekülni (teleport + javítás)
+      if (Game.inRound()) this.toast(0, 'Kör közben nem indulhatsz újra');
+      else if (Net.active) { const st = Game.spawnFor(0); Game.cars[0].reset(st.x, st.z, st.yaw); }
+      else Game.start();
+    }
     else if (a === 'menu') { this.setPause(false); Game.toMenu(); }
     else if (a === 'help') this.toggleHelp(true);
     else if (a === 'tagmode' && Net.host) { const m = ROOM_MODES[(ROOM_MODES.indexOf(Room.mode) + 1) % ROOM_MODES.length]; Room.hostSetup(m, ROOM_DEF[m]); this.drawPause(); this.netList(); }
@@ -964,11 +1070,23 @@ const UI = {
     });
     $('seedtag').textContent = Game.cfg.map === 'classic' ? 'Klasszikus pálya' : 'seed: ' + Game.cfg.seed;
   },
-  wreck(i, on, sec) {
+  wreck(i, on, sec, title, msg) {
     const h = this.huds[i]; if (!h) return;
     const w = h.querySelector('.wreck');
     w.classList.toggle('on', on);
-    if (on) w.querySelector('span').textContent = sec ? 'akkumulátor-zárlat · újraindulás ' + sec + ' mp' : 'akkumulátor-zárlat';
+    if (on) {
+      w.querySelector('b').textContent = title || 'TOTÁLKÁR';
+      w.querySelector('span').textContent = msg || (sec ? 'akkumulátor-zárlat · újraindulás ' + sec + ' mp' : 'akkumulátor-zárlat');
+    }
+  },
+  // víz alatti zárlat figyelmeztetés (7 mp teljes elmerülés után)
+  drown(i, on, sec, what) {
+    const h = this.huds[i]; if (!h) return;
+    const d = h.querySelector('.drown');
+    if (!on) { if (d.classList.contains('on')) d.classList.remove('on'); return; }
+    d.classList.add('on');
+    const t = 'zárlat ' + sec + ' mp múlva · ' + what + ' · gyere ki a vízből!';
+    const sp = d.querySelector('span'); if (sp.textContent !== t) sp.textContent = t;
   },
   // ---- online panel
   netOpen(msg, err) {
@@ -1011,7 +1129,7 @@ const UI = {
     el.classList.remove('hidden');
     const ps = [...Net.players.values()].sort((a, b) => a.id - b.id);
     document.body.classList.toggle('nethost', Net.host);
-    el.innerHTML = `<b>SZOBA ${Net.code}</b> · ${ps.length}/${NET_MAX}` + (Room.mode !== 'free' ? ' · ' + ROOM_MODE_NAME[Room.mode].toUpperCase() : '') + ps.map(p => `<div><i style="background:${NET_COLORS_CSS[p.id % 6]}"></i>${p.name.replace(/[<>&]/g, '')}${p.id === Net.myId ? ' (te)' : ''}${p.id === 0 ? ' ★' : ''}${Room.spectator(p.id) ? ' · vár' : ''}</div>`).join('');
+    el.innerHTML = `<b>SZOBA ${Net.code}</b> · ${ps.length}/${NET_MAX}` + (Room.mode !== 'free' ? ' · ' + ROOM_MODE_NAME[Room.mode].toUpperCase() : '') + ps.map(p => `<div><i style="background:${NET_COLORS_CSS[p.id % 6]}"></i>${p.name.replace(/[<>&]/g, '')}${p.id === Net.myId ? ' (te)' : ''}${p.id === 0 ? ' ★' : ''}${Room.isOut(p.id) ? ' · kiesett' : Room.spectator(p.id) ? ' · vár' : ''}</div>`).join('');
   },
   toast(i, msg) {
     const h = this.huds[i]; if (!h) return;

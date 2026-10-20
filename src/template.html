@@ -81,6 +81,11 @@ body.split::after{content:"";position:fixed;left:0;right:0;top:calc(50% - 1px);h
 .wreck b{display:block;font-size:clamp(40px,7vw,84px);letter-spacing:.12em;color:#ff5555;text-shadow:4px 4px 0 #000,0 0 30px rgba(255,60,60,.6);animation:wk .18s steps(2) infinite}
 .wreck span{display:block;margin-top:8px;font-size:14px;color:#fff;text-shadow:1px 1px 0 #000;letter-spacing:.06em}
 @keyframes wk{50%{transform:translateX(2px)}}
+.drown{position:absolute;left:50%;top:22%;transform:translate(-50%,-50%);text-align:center;opacity:0;transition:opacity .25s;pointer-events:none}
+.drown.on{opacity:1}
+.drown b{display:block;font-size:clamp(22px,3.6vw,40px);letter-spacing:.12em;color:#55ffff;text-shadow:3px 3px 0 #000,0 0 22px rgba(85,255,255,.5);animation:dw .6s steps(2) infinite}
+.drown span{display:block;margin-top:6px;font-size:13px;color:#fff;text-shadow:1px 1px 0 #000;letter-spacing:.05em}
+@keyframes dw{50%{color:#ff5555}}
 .toast{position:absolute;left:50%;top:22px;transform:translateX(-50%);font-size:14px;padding:6px 14px;background:rgba(0,0,170,.82);border:1px solid var(--cy);color:#fff;opacity:0;white-space:nowrap}
 .toast.fade{animation:tf 2.2s ease forwards}
 @keyframes tf{0%{opacity:0}8%{opacity:1}75%{opacity:1}100%{opacity:0}}
@@ -192,6 +197,7 @@ body.menu-on #topinfo{display:none}
 <div id="hud0" class="hud hidden">
   <div class="toast"></div>
   <div class="wreck"><b>TOTÁLKÁR</b><span></span></div>
+  <div class="drown"><b>ZÁRLATVESZÉLY</b><span></span></div>
   <div class="bl">
     <div><span class="spd">000</span><span class="unit">km/h</span></div>
     <div class="meta"><span class="name"></span> · <span class="dmg"></span> · <span class="surf"></span></div>
@@ -201,6 +207,7 @@ body.menu-on #topinfo{display:none}
 <div id="hud1" class="hud hidden">
   <div class="toast"></div>
   <div class="wreck"><b>TOTÁLKÁR</b><span></span></div>
+  <div class="drown"><b>ZÁRLATVESZÉLY</b><span></span></div>
   <div class="bl">
     <div><span class="spd">000</span><span class="unit">km/h</span></div>
     <div class="meta"><span class="name"></span> · <span class="dmg"></span> · <span class="surf"></span></div>
@@ -279,7 +286,7 @@ body.menu-on #topinfo{display:none}
           <tr><td>Boost (hátsó fúvóka)</td><td><kbd>Shift</kbd></td></tr>
           <tr><td>Ugrás / lebegés</td><td><kbd>E</kbd> (nyomva tartva lebeg, vízszintben tart)</td></tr>
           <tr><td>Szívás be/ki</td><td><kbd>Q</kbd></td></tr>
-          <tr><td>Visszaállítás</td><td><kbd>R</kbd></td></tr>
+          <tr><td>Kerékre állítás (álló autóval, helyben)</td><td><kbd>R</kbd></td></tr>
           <tr><td>Kamera</td><td><kbd>C</kbd></td></tr>
           <tr><td>Lámpa ki/be</td><td><kbd>L</kbd></td></tr>
           <tr><td>Körbenézés</td><td>egérrel húzva · görgő: távolság (elengedés után 2 mp-cel visszaáll)</td></tr>
@@ -299,7 +306,7 @@ body.menu-on #topinfo{display:none}
           <tr><td>Boost</td><td><kbd>bal Shift</kbd> · <kbd>jobb Shift</kbd></td></tr>
           <tr><td>Ugrás / lebegés</td><td><kbd>E</kbd> · <kbd>Enter</kbd></td></tr>
           <tr><td>Szívás be/ki</td><td><kbd>Q</kbd> · <kbd>.</kbd></td></tr>
-          <tr><td>Visszaállítás</td><td><kbd>R</kbd> · <kbd>Backspace</kbd></td></tr>
+          <tr><td>Kerékre állítás</td><td><kbd>R</kbd> · <kbd>Backspace</kbd></td></tr>
           <tr><td>Kamera</td><td><kbd>C</kbd> · <kbd>-</kbd></td></tr>
           <tr><td>Lámpa ki/be</td><td><kbd>F</kbd> · <kbd>L</kbd></td></tr>
         </table>
@@ -310,7 +317,7 @@ body.menu-on #topinfo{display:none}
           <tr><td>Ugrás / lebegés</td><td><kbd>A</kbd></td></tr>
           <tr><td>Kézifék · Boost</td><td><kbd>B</kbd> · <kbd>X</kbd> / <kbd>RB</kbd></td></tr>
           <tr><td>Szívás · Kamera</td><td><kbd>LB</kbd> · <kbd>Y</kbd></td></tr>
-          <tr><td>Visszaállítás · Szünet</td><td><kbd>Back</kbd> · <kbd>Start</kbd></td></tr>
+          <tr><td>Kerékre állítás · Szünet</td><td><kbd>Back</kbd> · <kbd>Start</kbd></td></tr>
           <tr><td>Lámpa · Kész (lobbi)</td><td><kbd>D-pad le</kbd> · <kbd>D-pad fel</kbd></td></tr>
         </table>
       </div>

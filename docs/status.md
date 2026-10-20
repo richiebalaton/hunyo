@@ -1,4 +1,4 @@
-# Hunyó – állapot (v2.0.0, 2026-10-18)
+# Hunyó – állapot (v2.1.0, 2026-10-20)
 
 - v1.8.0 Fogócska (tag.js), v1.8.1 sérülés-hangolás (DAMAGE_SCALE=1.0, DMG_STRUCT_K=0.7, DMG_DENT_W=0.18, DENT_DMG_MIN_IV=8), v1.9.0 rombolódás (vis max 0.24, DENT_MAX_OFF=0.35, kopás, szikra+törmelék iv>14, lámpa-kialvás iv>12, füst 60/85%).
 - v2.0.0:
@@ -10,14 +10,21 @@
   - Távoli autók térhatású hangja (PannerNode, lineáris, 35 m, álló autó néma) minden online módban.
 - Teszt (v2.0.0): egyjátékos regresszió (fizika: 4 m-es ejtés 30 a totálkárig, változatlan), 2–3 böngészős online teszt helyi PeerJS-szerverrel, klasszikus és generált pályán. Nyilvános PeerJS-szerveren nem tesztelve.
 
-## Következő fejlesztés (v2.1.0)
-1. Víz: vízben az autó mindig tapadjon a talajhoz, ne tudjon repülni, amíg ki nem jön. Ha berepül, szépen merüljön el, álljon a kerekére, és a vízfenéken lassan lehessen kimenni.
-2. Víz alatti zárlat: az óra a teljes elmerüléstől indul. 7 mp-nél figyelmeztetés és fogyni kezd az életerő, 15 mp-nél zárlat = kiesés, kereső sem lehet belőle, a kör végéig vár. Bújócskában a vízben kiesett bújó vesztes (nem számít megtaláltnak); ha az utolsó bújók is vízben esnek ki, a keresők nyernek. Szabad autózásban zárlat helyett újraindulás a kezdőpontról. Fogócskában nincs zárlat, csak a víz lassít.
-3. Pályahatár: láthatatlan fal a pálya szélein és tetején. Nem okoz sérülést, a Falcon 9-re nem hat.
-4. Repülés (E): a tappelés se adjon nagyobb emelkedési sebességet, mint a nyomva tartás.
-5. Háttérbe tett fül a házigazdánál ne állítsa meg a host-logikát (megtalálás, kör vége, lobbi).
-6. Fizika-robbanás elleni védelem nagy képkocka-időnél: fix lépésköz, dt-plafon, NaN vagy abszurd sebesség esetén autó-visszaállítás.
-7. Általános sebességplafon minden mozgásképességre (boost, ugrás, szívás és ezek kombinációi) és az eredő sebességre.
-8. Nagy sebességnél ne lehessen átbújni tárgyakon/terepen.
-9. Visszaállító gomb beragadásra/felborulásra: kerékre állítás helyben, nem teleport, bújócskában ne legyen menekülő eszköz.
-10. Kezdőpontok szétosztása, hogy kör elején ne spawnoljanak egymásba.
+- v2.1.0:
+  - Víz: víz-mód, ha az autó középpontja a vízszint alá kerül; megszűnik, ha a középpont 0,45 m-rel a vízszint fölé ér. Víz-módban nincs ugrás, lebegés, boost és kézi helyzetszabályzás; felhajtóerő 0,5 G (lassan merül, kb. 2 m/s), kényszerszívás 1,2 G a talaj felé, lágy kerékre fordulás (fejjel lefelé is), a fenéken max. 6 m/s. A mederben nincs keréknyom-fröccs.
+  - Víz alatti zárlat: az óra a teljes elmerüléstől (mind a 16 csomópont víz alatt) valós időben jár, kiemelkedéskor nullázódik. 7 mp: ZÁRLATVESZÉLY felirat + 5%/mp sérülés (a víz önmagában max. 95%-ig visz). 15 mp: szabad játékban, offline és a lobbiban új autó a startnál; fogócskában nincs óra; bújócska-körben (elbújás/keresés) kiesés: Room.out ('out' üzenet a házigazdának, 'ot' a 'g'-ben), a kiesett néző a kör végéig. A kiesett bújó vesztes ('x'); ha az utolsó bújók vízben esnek ki, a (nem fulladt) keresők nyernek ('drown'); vízbe fulladt kereső is kiesik, helyette 2+ bújónál új sorsolás, 1 bújónál a túlélő nyer ('nosk').
+  - Pályahatár: láthatatlan oldalfal ±310 m-nél és plafon (legmagasabb terep + 50 m). Merev eltolás + a kifelé mutató sebesség nullázása, nincs sérülés; csak az autókra hat (a Falcon 9 indítóállás minden pályán belül esik).
+  - Ugrás (E): az ugrás-impulzus csak kb. 5,5 m/s-ig emeli a felfelé irányuló sebességet (0,3 m/s holtsáv), a tank-fogyás arányos; tappeléssel így nem lehet gyorsabban emelkedni. A nyomva tartott E fizikája bitre azonos a v2.0.0-val.
+  - Háttérbe tett fül: online módban Worker-órajel (20 Hz) lépteti a játékot rajzolás nélkül, ha 300 ms óta nem volt rAF: host-logika (megtalálás, kör vége, lobbi), állapot-továbbítás, fizika. Szünetben/háttérben az autó kézifékkel áll (korábban a 0,3-as fék tolatást jelentett).
+  - Fizika-robbanás elleni védelem: fix 1/720 s lépésköz akkumulátorral, képkockánként max. 1/20 s; NaN/végtelen, 250 m/s feletti csomópont-sebesség vagy szétesett test esetén vissza a 0,25 mp-enként mentett ép állapotba (álló autó), ha az sincs, a kezdőpontra. Játéklogika (órák, fogóidő, hálózat) valós dt-vel (max. 1 mp).
+  - Sebességplafon: boost 90 m/s-ig gyorsít, szívás 20 m/s közelítési sebesség fölött gyengül, eredő sebesség (tömegközéppont) max. 100 m/s.
+  - Átbújás: oszlopnál a karosszéria teljes behatolása feloldódik (korábban 0,02 m/szubsztep, így oldalról 50 m/s-mal átbújt); a 100 m/s-os plafonnal egy szubszteppen max. 0,14 m az elmozdulás.
+  - R: kerékre állítás helyben (merev forgatás, a kerekek a lenti felületre, víz alatt a mederre), csak 3 m/s alatt, levegőben nem; a sérülés és a tank marad. Fogócska-/bújócska-körben 10 mp várakozás, és a szünetmenü „Újraindítás” tiltott.
+  - Kezdőpontok: sávonként (azonosítónként) 4 sor, foglalt helyre nem tesz; visszaállítás után 1 mp-ig nincs ütközés a távoli szellemekkel; a teleportáló távoli autó nem interpolál végig a pályán.
+  - Javítás: a generált pálya létrehozása összeomlott, ha egyik indítóállás-jelölt pontszáma sem volt -1 fölött (pl. seed "s22", "s308").
+- Teszt (v2.1.0):
+  - Node-os fizikai regresszió (régi vs. új physics.js, 31 eset): 4 m-es ejtés 7 helyzetből a totálkárig bitre azonos (tetőre 33, oldalra 53, orral 47/44 ejtés; laposan 300 után 3%); nyomva tartott E bitre azonos; tappelés max. 6,0 m/s (régi 14,9); víz, határ, plafonok, oszlop, NaN, R.
+  - Online: helyi PeerJS-szerver, 3 headless Chrome (házigazda + 2 kliens), klasszikus és generált pályán, különböző kereső-kiosztással: lobbi, kezdőpontok, bújócska vízbe fulladás/kiesés, 'drown' és 'nosk' kör-vég, valóban háttérbe tett házigazda fül (kör vége, lobbi, állapot-továbbítás), fogócska, szabad játék, 3 mp-es képkocka. Offline 1 és 2 játékos füstteszt. Nyilvános PeerJS-szerveren és mobilon nem tesztelve.
+
+## Következő fejlesztés
+- Nincs kijelölve.

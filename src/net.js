@@ -99,6 +99,9 @@ const Net = {
       if (d.a === id || d.b === id) Hide.claim(d.a, d.b);
     } else if (d.t === 'rdy') {
       Room.setReady(id, !!d.v);
+    } else if (d.t === 'out') {
+      // víz alatti zárlat: csak a saját autójáról jelezhet
+      Hide.eliminate(id);
     }
   },
   _downTrees() { const out = []; Game.world.trees.forEach((t, i) => { if (t.down) out.push(i); }); return out; },
@@ -210,6 +213,9 @@ const Net = {
     if (s.q !== undefined && r.lastQ !== undefined && s.q <= r.lastQ) return;
     r.lastQ = s.q;
     s.rt = performance.now() / 1000;
+    // teleport (újraindulás, kör eleje): nem interpolálunk végig a pályán, és rövid ideig nem ütközik
+    const pv = r.buf[r.buf.length - 1];
+    if (pv && Math.hypot(s.c[0] - pv.c[0], s.c[1] - pv.c[1], s.c[2] - pv.c[2]) > 10) { r.buf.length = 0; r.guard = 1.0; }
     r.buf.push(s);
     if (r.buf.length > 12) r.buf.shift();
   },
@@ -245,7 +251,7 @@ const Net = {
     }
     // távoli autók interpolálása
     const now = performance.now() / 1000 - NET_DELAY;
-    for (const r of this.remotes.values()) this._interp(r, now, dt);
+    for (const r of this.remotes.values()) { if (r.guard > 0) r.guard -= dt; this._interp(r, now, dt); }
     // a második (helyben nem használt) fényszórópár a legközelebbi, égő lámpájú távoli autóé
     const spot = Game.headlights && Game.headlights[1];
     let best = null, bd = 150;
@@ -321,10 +327,19 @@ const Net = {
   _v: [0, 0, 0],
 };
 
-function spawnPoint(W, id) {
-  const lane = [-12, 16, -4, 8, -18, 22][id % 6], back = -82 - Math.floor(id / 2) * 0;
-  const [x, z] = W.fromZone(back, lane);
-  return { x, z, yaw: W.zone.yaw };
+// kezdőpont: minden azonosítónak saját sávja van (így a kör elején egyszerre visszaálló autók nem
+// kerülnek egymásra); ha a sáv első helyén autó áll (avoid: autók listája), a sáv következő sorát adja
+const SPAWN_LANES = [-12, 16, -4, 8, -18, 22], SPAWN_ROWS = [-82, -72, -92, -62];
+function spawnPoint(W, id, avoid) {
+  const lane = SPAWN_LANES[id % 6];
+  let first = null;
+  for (const back of SPAWN_ROWS) {
+    const [x, z] = W.fromZone(back, lane);
+    const p = { x, z, yaw: W.zone.yaw };
+    if (!first) first = p;
+    if (!avoid || !avoid.some(c => Math.hypot(c.c[0] - x, c.c[2] - z) < 6 && Math.abs(c.c[1] - W.heightAt(x, z)) < 6)) return p;
+  }
+  return first;
 }
 function makeLabel(name, id) {
   const cv = document.createElement('canvas'); cv.width = 512; cv.height = 96;

@@ -18,5 +18,5 @@ A Terep2 (Nagymáthé Dénes, 1994–96, DOS) inspirálta. Böngészőben fut (a
 - Rakéta: saját low-poly hiperautó (Lamborghini-hangulat), márkajelzés nélkül, repülő Roadster-képességekkel: szívás (~2G), 600 l hideggáz, boost, ugrás/lebegés, levegőben helyzetszabályzás. 6 szín (online játékosonként).
 
 ## Ütemterv
-- v1–v2.0.0: kész.
+- v1–v2.1.0: kész.
 - Ötlet későbbre: időfutam + szellemautó.

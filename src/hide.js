@@ -6,6 +6,8 @@
 //  üzenettel jelenti; a házigazda jóváhagyja. Az időket hátralévő másodpercekkel küldjük.
 //  Menet: visszaszámlálás 3 mp → elbújás 40 mp (a kereső áll, fekete a képe) → keresés
 //  (3/4/6 perc) → eredménytábla 8 mp → lobbi. Akit megtalálnak, kereső lesz.
+//  Víz alatti zárlat (15 mp teljes elmerülés): kiesés (Room.out), a kör végéig néző. A kiesett bújó vesztes;
+//  ha az utolsó bújók vízben esnek ki, a keresők nyernek; ha nem marad kereső, a túlélők nyernek.
 // ============================================================
 const HIDE_COUNT = 3, HIDE_HIDE = 40, HIDE_RES = 8;
 const HIDE_PING = 45, HIDE_PING_DUR = 0.5, HIDE_WARN = 3;   // ping 45 mp-enként, 0,5 mp, 3 mp-cel előtte figyelmeztetés
@@ -19,7 +21,7 @@ const HIDE_SCAN_DT = 0.1;         // fénykúp-ellenőrzés 10 Hz-cel
 
 const Hide = {
   phase: 'off',          // off | count | hide | seek | res
-  endAt: 0, seekers: new Set(), surv: {}, results: null, round: 0, why: '',
+  endAt: 0, seekers: new Set(), surv: {}, drown: {}, results: null, round: 0, why: '',
   charge: new Map(), exp: new Map(), rings: new Map(), beacons: new Map(),
   _scanT: 0, _cq: 0, _myRound: -1, _applied: false, _warned: -1, _pingOn: false,
 
@@ -27,22 +29,24 @@ const Hide = {
   on() { return Net.active && Room.mode === 'hide' && Room.phase === 'game' && this.phase !== 'off'; },
   name(id) { const p = Net.players.get(id); return p ? p.name : '?'; },
   inPart(id) { return Room.part.includes(id) && Net.players.has(id); },
+  // a körben aktív (nem esett ki)
+  active(id) { return this.inPart(id) && !Room.out.has(id); },
   isSeeker(id) { return this.seekers.has(id); },
-  isHider(id) { return this.on() && this.inPart(id) && !this.seekers.has(id); },
-  hidersLeft() { return Room.part.filter(id => Net.players.has(id) && !this.seekers.has(id)).length; },
+  isHider(id) { return this.on() && this.active(id) && !this.seekers.has(id); },
+  hidersLeft() { return Room.part.filter(id => this.active(id) && !this.seekers.has(id)).length; },
   // a keresési fázisban eltelt idő (a pinghez)
   seekElapsed() { return this.phase === 'seek' ? Math.max(0, Room.len - Math.max(0, this.endAt - this.now())) : 0; },
   nextPing() { const e = this.seekElapsed(); return (Math.floor(e / HIDE_PING) + 1) * HIDE_PING - e; },
   pinging() { if (this.phase !== 'seek') return false; const e = this.seekElapsed(); return e >= HIDE_PING && (e % HIDE_PING) < HIDE_PING_DUR; },
 
   // ---- házigazda
-  stop() { this.phase = 'off'; this.seekers.clear(); this.surv = {}; this.results = null; this.charge.clear(); this.exp.clear(); },
+  stop() { this.phase = 'off'; this.seekers.clear(); this.surv = {}; this.drown = {}; this.results = null; this.charge.clear(); this.exp.clear(); },
   start(part) {
     const ids = [...part];
     const k = ids.length >= 6 ? 2 : 1;
     this.seekers.clear();
     while (this.seekers.size < k) this.seekers.add(ids[Math.floor(Math.random() * ids.length)]);
-    this.surv = {}; this.results = null; this.why = '';
+    this.surv = {}; this.drown = {}; this.results = null; this.why = '';
     this.round++;
     this.phase = 'count'; this.endAt = this.now() + HIDE_COUNT;
     this.broadcast();
@@ -56,9 +60,10 @@ const Hide = {
       this.ensureSeeker();
       // érintés a házigazda nézete szerint is (a kliens-bejelentés mellett)
       for (const a of this.seekers) {
+        if (!this.active(a)) continue;
         const A = Tag.carOf(a); if (!A) continue;
         for (const b of Room.part) {
-          if (this.seekers.has(b) || !Net.players.has(b)) continue;
+          if (this.seekers.has(b) || !this.active(b)) continue;
           const B = Tag.carOf(b);
           if (B && carsTouch(A, B)) this.claim(a, b);
         }
@@ -70,10 +75,12 @@ const Hide = {
     if (this.phase === 'res' && now >= this.endAt) Room.toLobby();
   },
   // ha nem maradt kereső (kilépett), a házigazda sorsol újat a bújók közül
+  // (a vízbe fulladt kereső kiesik; ha nem marad aktív kereső: 2+ bújónál új sorsolás, 1 bújónál ő nyer)
   ensureSeeker() {
     for (const s of [...this.seekers]) if (!this.inPart(s)) this.seekers.delete(s);
-    if (this.seekers.size) return;
-    const h = Room.part.filter(id => Net.players.has(id));
+    if ([...this.seekers].some(s => this.active(s))) return;
+    const h = Room.part.filter(id => this.active(id) && !this.seekers.has(id));
+    if (h.length === 1) { this.endRound('nosk'); return; }
     if (!h.length) return;
     const id = h[Math.floor(Math.random() * h.length)];
     this.seekers.add(id);
@@ -82,7 +89,7 @@ const Hide = {
   },
   claim(a, b) {
     if (!Net.host || this.phase !== 'seek') return false;
-    if (!this.seekers.has(a) || this.seekers.has(b) || !this.inPart(a) || !this.inPart(b)) return false;
+    if (!this.seekers.has(a) || this.seekers.has(b) || !this.active(a) || !this.active(b)) return false;
     const A = Tag.carOf(a), B = Tag.carOf(b);
     if (!A || !B || Math.hypot(A.c[0] - B.c[0], A.c[1] - B.c[1], A.c[2] - B.c[2]) > HIDE_RANGE + 20) return false;
     this.seekers.add(b);
@@ -93,14 +100,24 @@ const Hide = {
     return true;
   },
   endRound(why) {
+    if (this.phase === 'res') return;
     const list = Room.part.filter(id => Net.players.has(id)).map(id => {
-      const found = this.surv[id] !== undefined, initial = this.seekers.has(id) && !found;
-      const t = initial ? 0 : found ? this.surv[id] : Room.len;
-      return { id, name: this.name(id), t, s: initial ? 'k' : found ? 'f' : 'a' };
-    }).sort((a, b) => b.t - a.t);
-    // győztes: idő lejártakor minden túlélő; ha mindenkit megtaláltak, az utolsó megtalált
-    const best = list.length ? list[0].t : 0;
-    for (const r of list) r.w = why === 'time' ? r.s === 'a' : (r.s === 'f' && r.t === best);
+      const found = this.surv[id] !== undefined, seeker = this.seekers.has(id), initial = seeker && !found;
+      const dr = this.drown[id] !== undefined;
+      // s: k = kezdő kereső, f = megtalált, a = túlélő, x = vízbe fulladt bújó; o: vízbe fulladt kereső
+      const s = initial ? 'k' : found ? 'f' : dr ? 'x' : 'a';
+      const t = s === 'k' ? 0 : s === 'f' ? this.surv[id] : s === 'x' ? this.drown[id] : Room.len;
+      return { id, name: this.name(id), t, s, o: seeker && dr ? 1 : 0 };
+    });
+    // győztes: idő lejártakor / ha nem maradt kereső minden túlélő; ha mindenkit megtaláltak, az utolsó
+    // megtalált; ha az utolsó bújók vízbe fulladtak, a (nem fulladt) keresők
+    const best = Math.max(0, ...list.filter(r => r.s === 'f' && !r.o).map(r => r.t));
+    for (const r of list) {
+      r.w = why === 'time' || why === 'nosk' ? r.s === 'a'
+        : why === 'drown' ? (r.s === 'k' || r.s === 'f') && !r.o
+        : r.s === 'f' && !r.o && r.t === best;
+    }
+    list.sort((a, b) => (b.w - a.w) || (b.t - a.t));
     this.results = list; this.why = why;
     this.phase = 'res'; this.endAt = this.now() + HIDE_RES;
     this.broadcast();
@@ -110,10 +127,23 @@ const Hide = {
     this.seekers.delete(id);
     this.charge.delete(id);
   },
+  // víz alatti zárlat (a játékos saját gépe jelzi): kiesés a kör végéig
+  eliminate(id) {
+    if (!Net.host || Room.mode !== 'hide' || Room.phase !== 'game' || (this.phase !== 'hide' && this.phase !== 'seek')) return false;
+    if (!this.inPart(id) || Room.out.has(id)) return false;
+    Room.out.add(id);
+    this.drown[id] = this.phase === 'seek' ? +(this.now() - (this.endAt - Room.len)).toFixed(1) : 0;
+    this.charge.delete(id);
+    this.onOut(id);
+    if (this.hidersLeft() === 0) this.endRound('drown');
+    else this.ensureSeeker();
+    this.broadcast();
+    return true;
+  },
   snapshot() {
     const sv = {};
     for (const k in this.surv) sv[k] = this.surv[k];
-    return { ph: this.phase, rem: +Math.max(0, this.endAt - this.now()).toFixed(2), sk: [...this.seekers], sv, res: this.results, r: this.round, w: this.why };
+    return { ph: this.phase, rem: +Math.max(0, this.endAt - this.now()).toFixed(2), sk: [...this.seekers], sv, dr: this.drown, res: this.results, r: this.round, w: this.why };
   },
   broadcast() { Room.broadcast(); },
 
@@ -121,7 +151,7 @@ const Hide = {
   apply(d) {
     const old = new Set(this.seekers), oldPh = this.phase;
     this.phase = d.ph; this.endAt = this.now() + d.rem;
-    this.seekers = new Set(d.sk); this.surv = d.sv || {}; this.results = d.res; this.round = d.r; this.why = d.w || '';
+    this.seekers = new Set(d.sk); this.surv = d.sv || {}; this.drown = d.dr || {}; this.results = d.res; this.round = d.r; this.why = d.w || '';
     // új kereső: megtalálták (van túlélési ideje), vagy pótlás egy kilépett kereső helyett
     if (oldPh !== 'off' && this.phase !== 'count') for (const id of this.seekers) if (!old.has(id)) this.onFound(id, -1, this.surv[id] === undefined);
   },
@@ -145,6 +175,26 @@ const Hide = {
     v.ping = hider && this._pingOn;
   },
 
+  // kiesés (víz alatti zárlat) megjelenítése; a saját autó a startra kerül (rejtve, néző a kör végéig)
+  onOut(id) {
+    if (typeof Game === 'undefined' || Game.state !== 'play') return;
+    const me = Net.myId;
+    UI.toast(0, id === me ? 'ZÁRLAT A VÍZ ALATT · kiestél, várd meg a kör végét' : this.name(id) + ' kiesett: zárlat a víz alatt');
+    if (typeof Sound !== 'undefined') Sound.zap();
+    const c = Tag.carOf(id);
+    if (c && Game.particles) for (let k = 0; k < 40; k++) {
+      const a = Math.random() * 6.28;
+      Game.particles.emit(c.c[0], Math.max(c.c[1], Game.world.water) + 0.2, c.c[2], Math.cos(a) * 3, 2 + Math.random() * 4, Math.sin(a) * 3, 0x9fe8ff, 0.2, 0.7, 1, 0.5, 6);
+    }
+    if (id === me) {
+      UI.flash('rgba(120,200,255,0.55)');
+      UI.wreck(0, true, 0, 'ZÁRLAT', 'kiestél · várd meg a kör végét');
+      clearTimeout(this._outT); this._outT = setTimeout(() => { if (!(Game.cars[0] && Game.cars[0].wrecked)) UI.wreck(0, false); }, 3500);
+      const car = Game.cars[0];
+      if (car) { const st = Game.spawnFor(0); car.wrecked = false; car.reset(st.x, st.z, st.yaw); car.drownT = 0; }
+    }
+    this.charge.delete(id); this.exp.delete(id);
+  },
   onFound(id, by, newSeeker) {
     const me = Net.myId;
     if (newSeeker) UI.toast(0, id === me ? 'TE vagy az új KERESŐ!' : this.name(id) + ' az új kereső');
@@ -189,11 +239,11 @@ const Hide = {
     const on = this.on(), me = Game.cars[0], my = Net.myId;
     if (!on) { if (this._applied) this.restoreLocal(); this.clearSprites(); UI.hideHud(null); return; }
     this._applied = true;
-    const amPart = Room.part.includes(my), amSeeker = this.seekers.has(my);
+    const amPart = this.active(my), amSeeker = this.seekers.has(my);
     // új kör: mindenki a startra, megjavított autóval
     if (this._myRound !== this.round && (this.phase === 'count' || this.phase === 'hide')) {
       this._myRound = this.round;
-      if (me && amPart) { const st = spawnPoint(Game.world, my); me.wrecked = false; me.reset(st.x, st.z, st.yaw); me.lampsOff = false; if (Game.ctls[0]) Game.ctls[0].snap = true; UI.wreck(0, false); }
+      if (me && amPart) { const st = Game.spawnFor(0); me.wrecked = false; me.reset(st.x, st.z, st.yaw); me.lampsOff = false; if (Game.ctls[0]) Game.ctls[0].snap = true; UI.wreck(0, false); }
       this.charge.clear(); this.exp.clear(); this._warned = -1;
     }
     // ping: keresés közben 45 mp-enként minden bújó lámpája felvillan
@@ -210,7 +260,7 @@ const Hide = {
       if (amSeeker && me.lampsOff) me.lampsOff = false;
     }
     // megjelenés: kereső = saját szín + erős lámpa + piros jelzőfény; bújó = matt sötét
-    const role = (id) => !this.inPart(id) ? null : this.seekers.has(id) ? 'seeker' : 'hider';
+    const role = (id) => !this.active(id) ? null : this.seekers.has(id) ? 'seeker' : 'hider';
     if (Game.views[0]) this.styleView(Game.views[0], role(my));
     for (const [id, r] of Net.remotes) this.styleView(r.view, role(id));
     this.updateBeacons();
@@ -244,7 +294,7 @@ const Hide = {
         const scan = this._scanT <= 0;
         if (scan) this._scanT = HIDE_SCAN_DT;
         for (const [id, r] of Net.remotes) {
-          if (!this.seekers.has(id) || !this.inPart(id)) { this.exp.delete(id); continue; }
+          if (!this.seekers.has(id) || !this.active(id)) { this.exp.delete(id); continue; }
           let c = this.exp.get(id) || { t: 0, miss: 0 };
           if (scan) {
             if (this.sees(r.car, me)) { c.t += sdt; c.miss = 0; }
@@ -280,9 +330,9 @@ const Hide = {
   // piros jelzőfény a keresők tetején
   updateBeacons() {
     const t = this.now(), v = [0, 0, 0];
-    for (const [id, b] of this.beacons) if (!this.seekers.has(id) || !this.inPart(id) || !Tag.carOf(id)) b.visible = false;
+    for (const [id, b] of this.beacons) if (!this.seekers.has(id) || !this.active(id) || !Tag.carOf(id)) b.visible = false;
     for (const id of this.seekers) {
-      const c = Tag.carOf(id); if (!c || !this.inPart(id)) continue;
+      const c = Tag.carOf(id); if (!c || !this.active(id)) continue;
       let b = this.beacons.get(id);
       if (!b) {
         b = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(true), color: 0xff2020, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
